@@ -5,7 +5,7 @@ from icecream import ic
 import markdownify
 import openai
 import requests_html
-from typing import Generator
+from typing import Callable, Generator
 import xml.etree.ElementTree as ET
 
 class Application:
@@ -21,60 +21,25 @@ class Application:
     def analyze(self, goal: str, search_result: list[googlesearch.SearchResult]) -> list[str]:
         important_points: list[str] = []
 
+        example: str = """
+        Example:
+        <points>
+            <point>foo</point>
+            <point>bar</point>
+
+            <example>hoge hoge</example>
+        </points>
+        """.strip()
+
+        tags: str = """
+        Valid tags in <points>:
+        <point>: String, write a key point in short sentences. The key point should be relevant to what the user want to know.
+        <example>: String, write an example if the content provide it. \"example\" means some code in programming, for instance. Two or more <example> tags are not allowed.
+        """.strip()
+
         for result in search_result:
-            example: str = """
-            Example 1:
-            <website>
-                <useful>True</useful>
-                <reason>It seems to explain important stuff</reason>
-            </website>
-            Example 2:
-            <website>
-                <useful>False</useful>
-                <reason>It doesn't seem to explain necessary stuff</reason>
-            </website>
-            """.strip()
-
-            tags: str = """
-            Valid tags in <website> are:
-            <useful>: True or False, declare the website is useful or not.
-            <reason>: String, describe why you write <useful> True, or False.
-            """.strip()
-
-            messages: list[dict[str, str]] = [
-                { "role": "system", "content": f"Title:{result.title}\nDescription:{result.description}" },
-                { "role": "system", "content": f"Read the website title and description. Then, decide the website is useful or not and write it. You have to use XML format to write result:\n{example}\n{tags}" }
-            ]
-
-            while True:
-                response: openai.resources.chat.Completions = self.client.chat.completions.create(model = "phi-3-mini", messages = self.messages + messages)
-                ic(response.choices[0].message.content)
-                try:
-                    xml: ET.Element = ET.fromstring(response.choices[0].message.content.replace('&', "&amp;"))
-                    if xml.find("useful") is None:
-                        continue
-                    break
-                except:
-                    continue
-
-            if xml.find("useful").text == "False":
+            if not self.analyze_is_useful(result.title, result.description):
                 continue
-
-            example = """
-            Example:
-            <points>
-                <point>foo</point>
-                <point>bar</point>
-
-                <example>hoge hoge</example>
-            </points>
-            """.strip()
-
-            tags = """
-            Valid tags in <points>:
-            <point>: String, write a key point in short sentences. The key point should be relevant to what the user want to know.
-            <example>: String, write an example if the content provide it. \"example\" means some code in programming, for instance. Two or more <example> tags are not allowed.
-            """.strip()
 
             website_md: str = self.analyze_load_website(result.url)
             if website_md is None:
@@ -82,18 +47,14 @@ class Application:
 
             messages: list[dict[str, str]] = [
                 { "role": "system", "content": f"{website_md}" },
-                { "role": "system", "content": f"Read the part of the website contents. Then, extract key points which are relevant to the user's question. You have to use XML format to list key points:\n{example}\n{tags}" }
+                { "role": "system", "content": f"Read the part of the website contents. Then, extract key points which are relevant to the user's question. In this analyze phase, you have to achieve the goal:\n{goal}\nYou have to use XML format to list key points:\n{example}\n{tags}\nNOTE: DO NOT use any tags other than those described above." }
             ]
 
-            for _ in range(10):
-                response: openai.resources.chat.Completions = self.client.chat.completions.create(model = "phi-3-mini", messages = self.messages + messages)
-                ic(response.choices[0].message.content)
-                try:
-                    xml: ET.Element = ET.fromstring(response.choices[0].message.content.replace('&', "&amp;"))
-                    break
-                except:
-                    continue
+            xml_str = self.generate(messages = messages, verify = self.verify_xml("points"), max_attempt = 3)
+            if xml_str is None:
+                continue
 
+            xml = ET.fromstring(xml_str)
             points = xml.findall("point")
             for p in points if points is not None else []:
                 important_points.append(p.text)
@@ -104,6 +65,41 @@ class Application:
 
         ic(important_points)
         return important_points
+
+    def analyze_is_useful(self, title: str, description: str) -> bool:
+        example: str = """
+        Example 1:
+        <website>
+            <useful>True</useful>
+            <reason>It seems to explain important stuff</reason>
+        </website>
+        Example 2:
+        <website>
+            <useful>False</useful>
+            <reason>It doesn't seem to explain necessary stuff</reason>
+        </website>
+        """.strip()
+
+        tags: str = """
+        Valid tags in <website> are:
+        <useful>: True or False, declare the website is useful or not.
+        <reason>: String, describe why you write <useful> True, or False.
+        """.strip()
+
+        messages: list[dict[str, str]] = [
+            { "role": "system", "content": f"Title:{title}\nDescription:{description}" },
+            { "role": "system", "content": f"Read the website title and description. Then, decide the website is useful or not and write it. You have to use XML format to write result:\n{example}\n{tags}\nNOTE: DO NOT use any tags other than those described above." }
+        ]
+
+        def __verify(xml: ET.Element) -> bool:
+            return (xml.find("useful") is not None) and (xml.find("reason") is not None)
+
+        xml_str: str = self.generate(messages = messages, verify = self.verify_xml("website", __verify), max_attempt = 2)
+        if xml_str is None:
+            return False
+        
+        xml = ET.fromstring(xml_str)
+        return xml.find("useful").text == "True"
 
     def analyze_load_website(self, url: str) -> str:
         try:
@@ -138,7 +134,23 @@ class Application:
                 analyze_result = self.analyze(goal, search_result)
             elif name == "summarize":
                 return self.summarize(goal, analyze_result)
+        return None
 
+    def generate(self, messages: list[dict[str, str]] = [], verify: Callable[[str], bool] = lambda x: True, max_attempt: int = -1) -> str:
+        attempt = 0
+
+        while True:
+            if attempt == max_attempt:
+                return None
+            attempt += 1
+
+            response: openai.ChatCompletion = self.client.chat.completions.create(model = "gpt-3.5-turbo", messages = self.messages + messages)
+            content: str = response.choices[0].message.content
+            ic(content)
+
+            if verify(content):
+                return content
+            
     def plan(self, understanding: str) -> ET.Element:
         example: str = """
         Example 1:
@@ -159,35 +171,37 @@ class Application:
         tags: str = """
         Valid tags in <plan>:
         <action>: Actions that system perform. Variables are:
-            name: \"search\", \"analyze\" or \"summarize\" are valid.
+            name: \"search\", \"analyze\" or \"summarize\"
                 * analyze should be placed after search action.
                 * summarize should be placed after analyze.
                 * search can be used any position.
             goal: The goal for this action.
+            NOTE: \"search\", \"analyze\" and \" summarize\" should be appeared at least 1 times each.
         """.strip()
 
         self.messages += [
             { "role": "assistant", "content": understanding },
-            { "role": "system", "content": f"From your understanding, plan how to get information from the internet.\nYou have to use XML format to make plan:\n{example}\n{tags}\n" }
+            { "role": "system", "content": f"From your understanding, plan how to get information from the internet.\nYou have to use XML format to make plan:\n{example}\n{tags}\nNOTE: DO NOT use any other tags than those listed above." }
         ]
  
-        while True:
-            response: openai.resources.chat.Completions = self.client.chat.completions.create(
-                model = "phi-3-mini",
-                messages = self.messages
-            )
-            ic(response.choices[0].message.content)
+        def __verify(xml: ET.Element) -> bool:
+            is_search: bool = False
+            is_analyze: bool = False
+            is_summarize: bool = False
 
-            try:
-                xml: ET.Element = ET.fromstring(response.choices[0].message.content.replace('&', "&amp;"))
-                xml_valid_tag: list[ET.Element] = list(filter(lambda x: x.get("name") in ["search", "analyze", "summarize"], xml.findall("action")))
-                if len(xml_valid_tag) == 0:
-                    continue
-                break
-            except:
-                continue
+            for action in xml.findall("action"):
+                name = action.get("name")
+                if name == "search":
+                    is_search = True
+                elif name == "analyze":
+                    is_analyze = True
+                elif name == "summarize":
+                    is_summarize = True
+            return is_search and is_analyze and is_summarize
 
-        return xml
+        xml_str: str = self.generate(verify = self.verify_xml("plan", __verify))
+        self.messages.append({ "role": "assistant", "content": xml_str })
+        return ET.fromstring(xml_str)
 
     def run(self) -> int:
         while True:
@@ -201,33 +215,29 @@ class Application:
     def search(self, goal: str) -> list[googlesearch.SearchResult]:
         example: str = """
         Example:
-        <search>
-            <keywords>
-                <keyword>foo</keyword>
-                <keyword>bar</keyword>
-            </keywords>
-        </search>
+        <keywords>
+            <keyword>foo</keyword>
+            <keyword>bar</keyword>
+        </keywords>
         """.strip()
 
         tags: str = """
-        Valid tags in <keywords> in <search>:
+        Valid tags in <keywords>:
         <keyword>: String, the search keyword for google search.
         """
         self.messages += [
-            { "role": "system", "content": f"Extract search keywords for google search from previous interaction. In this search phase, you have to achieve the goal:\n{goal}\nYou have to use XML format to make search keywords list:\n{example}\n{tags}" }
+            { "role": "system", "content": f"Extract search keywords for google search from previous interaction. In this search phase, you have to achieve the goal:\n{goal}\nYou have to use XML format to make search keywords list:\n{example}\n{tags}\nNOTE: DO NOT use any other tags other than those described above." }
         ]
 
-        while True:
-            response: openai.resources.chat.Completions = self.client.chat.completions.create(model = "phi-3-mini", messages = self.messages)
-            ic(response.choices[0].message.content)
-            try:
-                keywords: ET.Element = ET.fromstring(response.choices[0].message.content.replace('&', "&amp;"))
-                break
-            except:
-                continue
+        def __verify(xml: ET.Element) -> bool:
+            if len(xml.findall("keyword")) > 0:
+                return True
+            return False
 
-        keywords_tag: ET.Element = keywords.find("keywords")
-        keyword_list: list[str] = [t.text for t in keywords_tag.findall("keyword")]
+        xml_str: str = self.generate(verify = self.verify_xml("keywords", __verify))
+
+        xml: ET.Element = ET.fromstring(xml_str)
+        keyword_list: list[str] = [t.text for t in xml.findall("keyword")]
 
         search_result: list[googlesearch.SearchResult] = []
         for keyword in keyword_list:
@@ -236,15 +246,14 @@ class Application:
 
         return search_result
 
-    def summarize(self, goal:str, analyze_result: list[str]) -> str:
+    def summarize(self, goal: str, analyze_result: list[str]) -> str:
         keypoints: str = '\n'.join(analyze_result)
-        messages: list[dict[str, str]] = [
+        self.messages += [
             { "role": "system", "content": keypoints },
-            { "role": "system", "content": "Read the key points above. Then summarize them as final result."}
+            { "role": "system", "content": "Read the key points above. Then summarize them as final result. In this summarize phase, you have to achieve the goal:\n{goal}" }
         ]
 
-        response: openai.resources.chat.ChatCompletions = self.client.chat.completions.create(model = "phi-3-mini", messages = self.messages + messages)
-        return response.choices[0].message.content
+        return self.generate()
 
     def understand(self, prompt: str) -> str:
         self.messages += [
@@ -252,12 +261,17 @@ class Application:
             { "role": "system", "content": "Read the user prompt. Then understand the user's intent, and write it. Remember, assumptions cause misinformation for the user, so before writing, think carefully." }
         ]
 
-        response: openai.resources.chat.Completions = self.client.chat.completions.create(
-            model = "phi-3-mini",
-            messages = self.messages
-        )
+        return self.generate()
 
-        return response.choices[0].message.content
+    def verify_xml(self, root_tag: str, verify: Callable[[ET.Element], bool] = lambda x: True) -> Callable[[str], bool]:
+        def __convert(x: str) -> bool:
+            try:
+                xml: ET.Element = ET.fromstring(x)
+                return verify(xml) if xml.tag == root_tag else False
+            except:
+                return False
+        return __convert
+
 
 if __name__ == "__main__":
     exit(Application().run())
