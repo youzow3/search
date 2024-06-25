@@ -180,7 +180,6 @@ class Application:
         """.strip()
 
         self.messages += [
-            { "role": "assistant", "content": understanding },
             { "role": "system", "content": f"From your understanding, plan how to get information from the internet.\nYou have to use XML format to make plan:\n{example}\n{tags}\nNOTE: DO NOT use any other tags than those listed above." }
         ]
  
@@ -261,7 +260,9 @@ class Application:
             { "role": "system", "content": "Read the user prompt. Then understand the user's intent. Remember, assumptions cause misinformation for the user, so before writing, think carefully." }
         ]
 
-        return self.generate()
+        output: str = self.generate()
+        self.messages.append({ "role": "assistant", "content": output })
+        return output
 
     def understand_v2(self, prompt: str) -> (list[str], list[str]):
         example: str = """
@@ -292,6 +293,8 @@ class Application:
 
         facts: list[str] = [t.text for t in xml.findall("fact")]
         inferences: list[str] = [t.text for t in xml.findall("inference")]
+
+        self.messages.append({ "role": "assistant", "content": xml_str })
 
         return facts, inferences
 
