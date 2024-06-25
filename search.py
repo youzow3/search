@@ -249,7 +249,7 @@ class Application:
         keypoints: str = '\n'.join(analyze_result)
         self.messages += [
             { "role": "system", "content": keypoints },
-            { "role": "system", "content": "Read the key points above. Then summarize them as final result. In this summarize phase, you have to achieve the goal:\n{goal}" }
+            { "role": "system", "content": f"Read the key points above. Then summarize them as final result. In this summarize phase, you have to achieve the goal:\n{goal}" }
         ]
 
         return self.generate()
