@@ -258,10 +258,42 @@ class Application:
     def understand(self, prompt: str) -> str:
         self.messages += [
             { "role": "user", "content": prompt },
-            { "role": "system", "content": "Read the user prompt. Then understand the user's intent, and write it. Remember, assumptions cause misinformation for the user, so before writing, think carefully." }
+            { "role": "system", "content": "Read the user prompt. Then understand the user's intent. Remember, assumptions cause misinformation for the user, so before writing, think carefully." }
         ]
 
         return self.generate()
+
+    def understand_v2(self, prompt: str) -> (list[str], list[str]):
+        example: str = """
+        <understanding>
+            <fact>the user wants to know how to do foo</fact>
+            <inference>the user seems to want to know how the foo works.</inference>
+        </understanding>
+        """.strip()
+        
+        tags: str = """
+        Valid tags in <understanding>:
+        <fact>: String, The stuff the user wants to know which you can read from the given sentence.
+        <inference>: String, The stuff the user seems to want to know. This means the stuff you can infer from the given sentence.
+        """
+
+        self.messages += [
+            { "role": "user", "content": prompt },
+            { "role": "system", "content": "Read the user prompt. Then understand the user's intent. You have to use XML format to write understanding:\n{example}\n{tags}.\nNOTE: DO NOT use any other tags other than those described above." }
+        ]
+
+        def __verify(xml: ET.Element) -> bool:
+            facts: list[ET.Element] = xml.findall("fact")
+            inference: list[ET.Element] = xml.findall("inference")
+            return (len(facts if facts is not None else []) + len(inference if inference is not None else [])) > 0
+
+        xml_str: str = self.generate(verify = self.verify_xml("understanding", __verify))
+        xml: ET.Element = ET.fromstring(xml_str)
+
+        facts: list[str] = [t.text for t in xml.findall("fact")]
+        inferences: list[str] = [t.text for t in xml.findall("inference")]
+
+        return facts, inferences
 
     def verify_xml(self, root_tag: str, verify: Callable[[ET.Element], bool] = lambda x: True) -> Callable[[str], bool]:
         def __convert(x: str) -> bool:
