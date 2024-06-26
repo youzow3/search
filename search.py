@@ -5,7 +5,7 @@ from icecream import ic
 import markdownify
 import openai
 import requests_html
-from typing import Callable, Generator
+from typing import Any, Callable, Generator
 import xml.etree.ElementTree as ET
 
 class Application:
@@ -31,11 +31,13 @@ class Application:
         </points>
         """.strip()
 
-        tags: str = """
-        Valid tags in <points>:
-        <point>: String, write a key point in short sentences. The key point should be relevant to what the user want to know.
-        <example>: String, write an example if the content provide it. \"example\" means some code in programming, for instance. Two or more <example> tags are not allowed.
-        """.strip()
+        tags: dict[str, str] = {
+            "<point>": "Write a key point in short sentences. The key point should be relevant to what the user want to know.",
+            "<example>": "Write an example if provided in content."
+        }
+
+        xml_instruction: str = self.xml_example(example, "points", tags)
+        ic(xml_instruction)
 
         for result in search_result:
             if not self.analyze_is_useful(result.title, result.description):
@@ -47,7 +49,7 @@ class Application:
 
             messages: list[dict[str, str]] = [
                 { "role": "system", "content": f"{website_md}" },
-                { "role": "system", "content": f"Read the part of the website contents. Then, extract key points which are relevant to the user's question. In this analyze phase, you have to achieve the goal:\n{goal}\nYou have to use XML format to list key points:\n{example}\n{tags}\nNOTE: DO NOT use any tags other than those described above." }
+                { "role": "system", "content": f"Read the part of the website contents. Then, extract key points which are relevant to the user's question. In this analyze phase, you have to achieve the goal:\n{goal}\n{xml_instruction}" }
             ]
 
             xml_str = self.generate(messages = messages, verify = self.verify_xml("points"), max_attempt = 3)
@@ -80,15 +82,17 @@ class Application:
         </website>
         """.strip()
 
-        tags: str = """
-        Valid tags in <website> are:
-        <useful>: True or False, declare the website is useful or not.
-        <reason>: String, describe why you write <useful> True, or False.
-        """.strip()
+        tags: dict[str, str] = {
+            "<useful>": "True or False, whether the website is useful or not.",
+            "<reason>": "Describe why you write <useful> True or False."
+        }
+
+        xml_instruction: str = self.xml_example(example, "website", tags)
+        ic(xml_instruction)
 
         messages: list[dict[str, str]] = [
             { "role": "system", "content": f"Title:{title}\nDescription:{description}" },
-            { "role": "system", "content": f"Read the website title and description. Then, decide the website is useful or not and write it. You have to use XML format to write result:\n{example}\n{tags}\nNOTE: DO NOT use any tags other than those described above." }
+            { "role": "system", "content": f"Read the website title and description. Then, decide the website is useful or not and write it.\n{xml_instruction}" }
         ]
 
         def __verify(xml: ET.Element) -> bool:
@@ -168,19 +172,18 @@ class Application:
         </plan>
         """.strip()
 
-        tags: str = """
-        Valid tags in <plan>:
-        <action>: Actions that system perform. Variables are:
-            name: \"search\", \"analyze\" or \"summarize\"
-                * analyze should be placed after search action.
-                * summarize should be placed after analyze.
-                * search can be used any position.
-            goal: The goal for this action.
-            NOTE: \"search\", \"analyze\" and \" summarize\" should be appeared at least 1 times each.
-        """.strip()
+        tags: dict[str, dict[str, str]] = {
+            "<action>": {
+                "name": "\"search\", \"analyze\" or \"summarize\". They should appear this order: search -> analyze -> summarize, but you can search again too after analyze.",
+                "goal": "Brief description of the goal of this action." 
+            }
+        }
+        
+        xml_instruction: str = self.xml_example(example, "plan", tags)
+        ic(xml_instruction)
 
         self.messages += [
-            { "role": "system", "content": f"From your understanding, plan how to get information from the internet.\nYou have to use XML format to make plan:\n{example}\n{tags}\nNOTE: DO NOT use any other tags than those listed above." }
+            { "role": "system", "content": f"From your understanding, plan how to get information from the internet.\n{xml_instruction}" }
         ]
  
         def __verify(xml: ET.Element) -> bool:
@@ -220,12 +223,15 @@ class Application:
         </keywords>
         """.strip()
 
-        tags: str = """
-        Valid tags in <keywords>:
-        <keyword>: String, the search keyword for google search.
-        """
+        tags: dict[str, str] = {
+            "<keyword>": "A search keyword for google search."
+        }
+        
+        xml_instruction: str = self.xml_example(example, "keywords", tags)
+        ic(xml_instruction)
+
         self.messages += [
-            { "role": "system", "content": f"Extract search keywords for google search from previous interaction. In this search phase, you have to achieve the goal:\n{goal}\nYou have to use XML format to make search keywords list:\n{example}\n{tags}\nNOTE: DO NOT use any other tags other than those described above." }
+            { "role": "system", "content": f"Extract search keywords for google search from previous interaction. In this search phase, you have to achieve the goal:\n{goal}\n{xml_instruction}" }
         ]
 
         def __verify(xml: ET.Element) -> bool:
@@ -246,7 +252,7 @@ class Application:
         return search_result
 
     def summarize(self, goal: str, analyze_result: list[str]) -> str:
-        keypoints: str = '\n'.join(analyze_result)
+        keypoints: str = '\n'.join(list(filter(lambda x: x is not None, analyze_result)))
         self.messages += [
             { "role": "system", "content": keypoints },
             { "role": "system", "content": f"Read the key points above. Then summarize them as final result. In this summarize phase, you have to achieve the goal:\n{goal}" }
@@ -271,16 +277,18 @@ class Application:
             <inference>the user seems to want to know how the foo works.</inference>
         </understanding>
         """.strip()
-        
-        tags: str = """
-        Valid tags in <understanding>:
-        <fact>: String, The stuff the user wants to know which you can read from the given sentence.
-        <inference>: String, The stuff the user seems to want to know. This means the stuff you can infer from the given sentence.
-        """
+
+        tags: dict[str, str] = {
+            "<fact>": "The stuff the user wants to know which you can read from the given sentence.",
+            "<inference>": "The stuff the user seems to want to know. This means the stuff you can infer from the given sentence."
+        }
+
+        xml_instruction: str = self.xml_example(example, "understanding", tags)
+        ic(xml_instruction)
 
         self.messages += [
             { "role": "user", "content": prompt },
-            { "role": "system", "content": "Read the user prompt. Then understand the user's intent. You have to use XML format to write understanding:\n{example}\n{tags}.\nNOTE: DO NOT use any other tags other than those described above." }
+            { "role": "system", "content": f"Read the user prompt. Then understand the user's intent.\n{xml_instruction}" }
         ]
 
         def __verify(xml: ET.Element) -> bool:
@@ -307,6 +315,34 @@ class Application:
                 return False
         return __convert
 
+    def xml_example(self, examples: str | list[str], root_tag: str, children: dict[Any, str | dict[str, str]]) -> str:
+        output: str = "You have to use XML format to write your response. Examples:\n"
+        for ex in examples if type(examples) == list else [examples]:
+            output += f"{ex}\n"
+
+        output += "Valid tags:\n"
+        
+        def __expand(__children: dict[Any, str], __output = "", __depth = 0) -> str:
+            for k, v in __children.items():
+                k_name: str = k if type(k) == str else k[0]
+                k_dict: dict = None if type(k) == str else k[1]
+
+                __output += '\t' * __depth + f"{k_name}:"
+                if type(v) == str:
+                    __output += f" {v}\n"
+                else:
+                    __output += '\n'
+                    for k1, v1 in v.items():
+                        __output += '\t' * (__depth + 1) + f"{k1}: {v1}\n"
+                
+                if k_dict is not None:
+                    __depth += 1
+                    __expand(k_dict, __output, __depth)
+            return __output
+
+        output += __expand(children)
+
+        return output
 
 if __name__ == "__main__":
     exit(Application().run())
