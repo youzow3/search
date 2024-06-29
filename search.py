@@ -208,6 +208,8 @@ class Application:
     def run(self) -> int:
         while True:
             prompt = input("Search > ")
+            if prompt == "exit":
+                break
             u: str = self.understand(prompt)
             plan: ET.Element = self.plan(u)
             result = self.execute(plan)
