@@ -59,12 +59,12 @@ class Application:
             if xml_str is None:
                 continue
 
-            xml = ET.fromstring(xml_str)
-            points = xml.findall("point")
+            xml: ET.Element = ET.fromstring(xml_str)
+            points: ET.Element = xml.findall("point")
             for p in points if points is not None else []:
                 important_points.append(p.text)
 
-            example_tag = xml.find("example")
+            example_tag: ET.Element = xml.find("example")
             if example_tag is not None:
                 important_points.append(example_tag.text)
 
@@ -104,7 +104,7 @@ class Application:
         if xml_str is None:
             return False
         
-        xml = ET.fromstring(xml_str)
+        xml: ET.Element = ET.fromstring(xml_str)
         return xml.find("useful").text == "True"
 
     def analyze_load_website(self, url: str) -> str:
@@ -126,7 +126,7 @@ class Application:
         main_content: str = f"<html><body>{main_tag}</body></html>"
         return markdownify.markdownify(main_content)
 
-    def execute(self, plan: ET.Element) -> str:
+    def execute(self, plan: ET.Element) -> str | None:
         search_result: list[googlesearch.SearchResult] = []
         analyze_result: list[str] = []
 
@@ -142,8 +142,8 @@ class Application:
                 return self.summarize(goal, analyze_result)
         return None
 
-    def generate(self, messages: list[dict[str, str]] = [], verify: Callable[[str], bool] = lambda x: True, max_attempt: int = -1) -> str:
-        attempt = 0
+    def generate(self, messages: list[dict[str, str]] = [], verify: Callable[[str], bool] = lambda x: True, max_attempt: int = -1) -> str | None:
+        attempt: int = 0
 
         while True:
             if attempt == max_attempt:
@@ -240,7 +240,7 @@ class Application:
         return search_result
 
     def summarize(self, goal: str, analyze_result: list[str]) -> str:
-        keypoints: str = '\n'.join(list(filter(lambda x: x is not None, analyze_result)))
+        keypoints: str = '\n'.join(list(filter(lambda x: x is not None, analyze_result))).strip()
         self.messages += [
             { "role": "system", "content": keypoints },
             { "role": "system", "content": f"Read the key points above. Then summarize them as final result. In this summarize phase, you have to achieve the goal:\n{goal}" }
@@ -334,7 +334,7 @@ class Application:
                 return False
 
             def __verify_sub(sub: ET.Element, tags: dict[str, Any]) -> int:
-                n_tags = 0
+                n_tags: int = 0
                 for k, v in tags.items():
                     if re.match(r"^<.*>$", k): # If it is a tag
                         k_items: list = sub.findall(k)
