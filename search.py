@@ -240,13 +240,28 @@ class Application:
         return search_result
 
     def summarize(self, goal: str, analyze_result: list[str]) -> str:
+        example: str = """
+        <summarize>
+            <content>Summarized text</content>
+        </summarize>
+        """.strip()
+
+        tags: dict[str, str] = {
+            "content": "The text which you summarize from given keypoints and examples."
+        }
+        
+        xml_instruction: str
+        xml_verify: Callable[[str], bool]
+        xml_instruction, xml_verify = self.xml_instruction_and_verify(example, "summarize", tags)
         keypoints: str = '\n'.join(list(filter(lambda x: x is not None, analyze_result))).strip()
         self.messages += [
             { "role": "system", "content": keypoints },
-            { "role": "system", "content": f"Read the key points above. Then summarize them as final result. In this summarize phase, you have to achieve the goal:\n{goal}" }
+            { "role": "system", "content": f"Read the key points above. Then summarize them as final result. In this summarize phase, you have to achieve the goal:\n{goal}\n{xml_instruction}" }
         ]
 
-        return self.generate()
+        xml: ET.Element = ET.fromstring(self.generate(verify = xml_verify))
+        content: ET.Element = xml.find("content")
+        return content.text
 
     def understand(self, prompt: str) -> str:
         self.messages += [
