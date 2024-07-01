@@ -4,6 +4,7 @@ import googlesearch
 from icecream import ic
 import markdownify
 import openai
+import re
 import requests_html
 from typing import Any, Callable, Generator
 import xml.etree.ElementTree as ET
@@ -36,7 +37,9 @@ class Application:
             "<example>": "Write an example if provided in content."
         }
 
-        xml_instruction: str = self.xml_example(example, "points", tags)
+        xml_instruction: str
+        verify: Callable[[str], bool]
+        xml_instruction, verify = self.xml_instruction_and_verify(example, "points", tags)
         ic(xml_instruction)
 
         for result in search_result:
@@ -52,7 +55,7 @@ class Application:
                 { "role": "system", "content": f"Read the part of the website contents. Then, extract key points which are relevant to the user's question. In this analyze phase, you have to achieve the goal:\n{goal}\n{xml_instruction}" }
             ]
 
-            xml_str = self.generate(messages = messages, verify = self.verify_xml("points"), max_attempt = 3)
+            xml_str: str = self.generate(messages = messages, verify = verify, max_attempt = 3)
             if xml_str is None:
                 continue
 
@@ -87,7 +90,9 @@ class Application:
             "<reason>": "Describe why you write <useful> True or False."
         }
 
-        xml_instruction: str = self.xml_example(example, "website", tags)
+        xml_instruction: str
+        verify: Callable[[str], bool]
+        xml_instruction, verify = self.xml_instruction_and_verify(example, "website", tags)
         ic(xml_instruction)
 
         messages: list[dict[str, str]] = [
@@ -95,10 +100,7 @@ class Application:
             { "role": "system", "content": f"Read the website title and description. Then, decide the website is useful or not and write it.\n{xml_instruction}" }
         ]
 
-        def __verify(xml: ET.Element) -> bool:
-            return (xml.find("useful") is not None) and (xml.find("reason") is not None)
-
-        xml_str: str = self.generate(messages = messages, verify = self.verify_xml("website", __verify), max_attempt = 2)
+        xml_str: str = self.generate(messages = messages, verify = verify, max_attempt = 2)
         if xml_str is None:
             return False
         
@@ -179,29 +181,16 @@ class Application:
             }
         }
         
-        xml_instruction: str = self.xml_example(example, "plan", tags)
+        xml_instruction: str
+        verify: Callable[[str], bool]
+        xml_instruction, verify = self.xml_instruction_and_verify(example, "plan", tags)
         ic(xml_instruction)
 
         self.messages += [
             { "role": "system", "content": f"From your understanding, plan how to get information from the internet.\n{xml_instruction}" }
         ]
- 
-        def __verify(xml: ET.Element) -> bool:
-            is_search: bool = False
-            is_analyze: bool = False
-            is_summarize: bool = False
 
-            for action in xml.findall("action"):
-                name = action.get("name")
-                if name == "search":
-                    is_search = True
-                elif name == "analyze":
-                    is_analyze = True
-                elif name == "summarize":
-                    is_summarize = True
-            return is_search and is_analyze and is_summarize
-
-        xml_str: str = self.generate(verify = self.verify_xml("plan", __verify))
+        xml_str: str = self.generate(verify = verify)
         self.messages.append({ "role": "assistant", "content": xml_str })
         return ET.fromstring(xml_str)
 
@@ -229,19 +218,16 @@ class Application:
             "<keyword>": "A search keyword for google search."
         }
         
-        xml_instruction: str = self.xml_example(example, "keywords", tags)
+        xml_instruction: str
+        verify: Callable[[str], bool]
+        xml_instruction, verify = self.xml_instruction_and_verify(example, "keywords", tags)
         ic(xml_instruction)
 
         self.messages += [
             { "role": "system", "content": f"Extract search keywords for google search from previous interaction. In this search phase, you have to achieve the goal:\n{goal}\n{xml_instruction}" }
         ]
 
-        def __verify(xml: ET.Element) -> bool:
-            if len(xml.findall("keyword")) > 0:
-                return True
-            return False
-
-        xml_str: str = self.generate(verify = self.verify_xml("keywords", __verify))
+        xml_str: str = self.generate(verify = verify)
 
         xml: ET.Element = ET.fromstring(xml_str)
         keyword_list: list[str] = [t.text for t in xml.findall("keyword")]
@@ -285,7 +271,9 @@ class Application:
             "<inference>": "The stuff the user seems to want to know. This means the stuff you can infer from the given sentence."
         }
 
-        xml_instruction: str = self.xml_example(example, "understanding", tags)
+        xml_instruction: str
+        verify: Callable[[str], bool]
+        xml_instruction, verify = self.xml_instruction_and_verify(example, "understanding", tags)
         ic(xml_instruction)
 
         self.messages += [
@@ -293,12 +281,7 @@ class Application:
             { "role": "system", "content": f"Read the user prompt. Then understand the user's intent.\n{xml_instruction}" }
         ]
 
-        def __verify(xml: ET.Element) -> bool:
-            facts: list[ET.Element] = xml.findall("fact")
-            inference: list[ET.Element] = xml.findall("inference")
-            return (len(facts if facts is not None else []) + len(inference if inference is not None else [])) > 0
-
-        xml_str: str = self.generate(verify = self.verify_xml("understanding", __verify))
+        xml_str: str = self.generate(verify = verify)
         xml: ET.Element = ET.fromstring(xml_str)
 
         facts: list[str] = [t.text for t in xml.findall("fact")]
@@ -317,34 +300,58 @@ class Application:
                 return False
         return __convert
 
-    def xml_example(self, examples: str | list[str], root_tag: str, children: dict[Any, str | dict[str, str]]) -> str:
+    def xml_example(self, examples: str | list[str], root_tag: str, children: dict[str, str | dict[str, Any]]) -> str:
         output: str = "You have to use XML format to write your response. Examples:\n"
         for ex in examples if type(examples) == list else [examples]:
             output += f"{ex}\n"
 
         output += "Valid tags:\n"
         
-        def __expand(__children: dict[Any, str], __output = "", __depth = 0) -> str:
+        def __expand(__children: dict[str, Any], __output = "", __depth = 0) -> str:
             for k, v in __children.items():
-                k_name: str = k if type(k) == str else k[0]
-                k_dict: dict = None if type(k) == str else k[1]
+                __output += '\t' * __depth + f"{k}:"
 
-                __output += '\t' * __depth + f"{k_name}:"
                 if type(v) == str:
                     __output += f" {v}\n"
-                else:
+                elif type(v) == dict:
                     __output += '\n'
-                    for k1, v1 in v.items():
-                        __output += '\t' * (__depth + 1) + f"{k1}: {v1}\n"
-                
-                if k_dict is not None:
-                    __depth += 1
-                    __expand(k_dict, __output, __depth)
+                    __output = __expand(v, __output, __depth + 1)
+                else:
+                    raise Exception()
             return __output
 
-        output += __expand(children)
+        return __expand(children, output)
 
-        return output
+    def xml_instruction_and_verify(self, examples: str | list[str], root_tag: str, children: dict[str, Any]) -> (str, Callable[[str], bool]):
+        instruction: str = self.xml_example(examples, root_tag, children)
+
+        def __verify(xml_str: str) -> bool:
+            try:
+                xml: ET.Element = ET.fromstring(xml_str)
+                if xml.tag != root_tag:
+                    return False
+            except:
+                return False
+
+            def __verify_sub(sub: ET.Element, tags: dict[str, Any]) -> int:
+                n_tags = 0
+                for k, v in tags.items():
+                    if re.match(r"^<.*>$", k): # If it is a tag
+                        k_items: list = sub.findall(k)
+                        if k_items is None:
+                            continue
+                        
+                        if type(v) == dict:
+                            for k_item in k_items:
+                                n_tags += __verify_sub(k_item, v)
+                        else:
+                            n_tags += len(k_items)
+                return n_tags
+
+            return __verify_sub(xml, children) == len(xml.items())
+
+        return instruction, __verify
 
 if __name__ == "__main__":
     exit(Application().run())
+
