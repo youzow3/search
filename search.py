@@ -196,7 +196,7 @@ class Application:
 
     def run(self) -> int:
         while True:
-            prompt = input("Search > ")
+            prompt: int = input("Search > ")
             if prompt == "exit":
                 break
             u: str = self.understand(prompt)
@@ -322,7 +322,7 @@ class Application:
 
         output += "Valid tags:\n"
         
-        def __expand(__children: dict[str, Any], __output = "", __depth = 0) -> str:
+        def __expand(__children: dict[str, Any], __output: str = "", __depth: int = 0) -> str:
             for k, v in __children.items():
                 __output += '\t' * __depth + f"{k}:"
 
