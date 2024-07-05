@@ -109,7 +109,7 @@ class Application:
 
     def analyze_load_website(self, url: str) -> str:
         try:
-            response: requests_html.HTMLResponse = self.session.get(url)
+            response: requests_html.HTMLResponse = self.session.get(url, timeout = 60)
         except:
             return None
 
