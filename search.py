@@ -234,7 +234,7 @@ class Application:
 
         search_result: list[googlesearch.SearchResult] = []
         for keyword in keyword_list:
-            result: Generator[googlesearch.SearchResult] = googlesearch.search(keyword, advanced = True, sleep_interval = 1, timeout = 60)
+            result: Generator[googlesearch.SearchResult] = googlesearch.search(keyword, num_results = 5, advanced = True, sleep_interval = 1, timeout = 60)
             _ = [search_result.append(r) for r in result]
 
         return search_result
