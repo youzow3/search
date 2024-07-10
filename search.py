@@ -408,11 +408,11 @@ class Application:
 
         tags: dict[str, dict[str, str] | str] = {
             # "ref": "The website title which you use to make summary.",
-            "ref": {
+            "<ref>": {
                 "id": "The number to identify website which is quoted in content tag.",
                 "title": "The website title"
             },
-            "content": "Summary of search results. You should write quote like this:[1], [2], ... [n]"
+            "<content>": "Summary of search results. You should write quote like this:[1], [2], ... [n]"
         }
         
         xml_instruction: str
@@ -537,22 +537,30 @@ class Application:
             except:
                 return False
 
+            def __num_tags(r: ET.Element) -> int:
+                return sum([__num_tags(_r) for _r in r]) + len(r)
+
             def __verify_sub(sub: ET.Element, tags: dict[str, Any]) -> int:
                 n_tags: int = 0
                 for k, v in tags.items():
-                    if re.match(r"^<.*>$", k): # If it is a tag
-                        k_items: list = sub.findall(k)
-                        if k_items is None:
-                            continue
-                        
-                        if type(v) == dict:
-                            for k_item in k_items:
-                                n_tags += __verify_sub(k_item, v)
-                        else:
-                            n_tags += len(k_items)
+                    ic(k, v)
+                    if not k.startswith('<') and not k.endswith('>'): # If it is not a tag
+                        continue
+
+                    k_items: list[ET.Element] = sub.findall(k.strip("<>"))
+                    ic(k_items)
+                    if k_items is None:
+                        continue
+
+                    n_tags += len(k_items)
+                    
+                    if type(v) == dict:
+                        for k_item in k_items:
+                            n_tags += __verify_sub(k_item, v)
                 return n_tags
 
-            return __verify_sub(xml, children) == len(xml.items())
+            ic(__verify_sub(xml, children), __num_tags(xml))
+            return __verify_sub(xml, children) == __num_tags(xml)
 
         return instruction, __verify
 
