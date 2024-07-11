@@ -40,9 +40,9 @@ def make_server_script(config: str, server_args: str, thread: int, model_path: s
     server_command: str = f"{command} {server_args} -m {model_path}"
 
     with open("llama-server.sh", "w") as f:
-        f.writelines(["#!/bin/sh", server_command])
+        _ = [print(s, file = f) for s in ["#!/bin/sh", server_command]]
     with open("llama-server.bat", "w") as f:
-        _ = [print(s, file = f) for s in server_command]
+        print(server_command, file = f)
     return 0
 
 def download_model(huggingface: str, gguf: str) -> int:
@@ -57,7 +57,7 @@ def download_model(huggingface: str, gguf: str) -> int:
                 return 1
         returncode = os.system(f"python3 llama.cpp/convert_hf_to_gguf.py --outfile model.gguf {directory}")
     else:
-        returncode = os.system("wget -O model.gguf {gguf}")
+        returncode = os.system(f"wget -O model.gguf {gguf}")
 
     return returncode
 
@@ -67,7 +67,7 @@ def quantize_model(config: str, quant_type: str, thread: int):
     return returncode
 
 def main(args: argparse.Namespace) -> int:
-    check: int = sum([check_command(cmd) for cmd in ["git", "git-lfs", "cmake"]])
+    check: int = sum([check_command(cmd) for cmd in ["git", "git-lfs", "cmake", "wget", "pip"]])
     if check != 0:
         print("Some necessary softwares were not found. Please check them, and try again.")
         return 1
