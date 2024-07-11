@@ -42,7 +42,7 @@ def make_server_script(config: str, server_args: str, thread: int, model_path: s
     with open("llama-server.sh", "w") as f:
         f.writelines(["#!/bin/sh", server_command])
     with open("llama-server.bat", "w") as f:
-        _ = [print(s, file = f) for s in server_command])
+        _ = [print(s, file = f) for s in server_command]
     return 0
 
 def download_model(huggingface: str, gguf: str) -> int:
