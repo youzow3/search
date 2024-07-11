@@ -120,7 +120,7 @@ def main(args: argparse.Namespace) -> int:
         print("Done")
 
     print("Start making the server script.")
-    model_path: str = "model.gguf" if args.quantize is None else f"model-{args.quantize}"
+    model_path: str = "model.gguf" if args.quantize is None else f"model-{args.quantize}.gguf"
     returncode = make_server_script(args.config, args.server_argument, args.thread, model_path)
     if returncode != 0:
         print("Warning: Failed to make server script.")
