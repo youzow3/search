@@ -504,31 +504,7 @@ class Application:
                 return False
         return __convert
 
-    def xml_example(self, examples: str | list[str], root_tag: str, children: dict[str, str | dict[str, Any]]) -> str:
-        output: str = "You have to use XML format to write your response. Examples:\n"
-        for ex in examples if type(examples) == list else [examples]:
-            output += f"{ex}\n"
-
-        output += "Valid tags:\n"
-        
-        def __expand(__children: dict[str, Any], __output: str = "", __depth: int = 0) -> str:
-            for k, v in __children.items():
-                __output += '\t' * __depth + f"{k}:"
-
-                if type(v) == str:
-                    __output += f" {v}\n"
-                elif type(v) == dict:
-                    __output += '\n'
-                    __output = __expand(v, __output, __depth + 1)
-                else:
-                    raise Exception()
-            return __output
-
-        return __expand(children, output)
-
-    def xml_instruction_and_verify(self, examples: str | list[str], root_tag: str, children: dict[str, Any]) -> (str, Callable[[str], bool]):
-        instruction: str = self.xml_example(examples, root_tag, children)
-
+    def verify_xml_v2(self, root_tag: str, children: dict[str, Any], verify: Callable[[ET.Element], bool] = lambda x: True) -> Callable[[str], bool]:
         def __verify(xml_str: str) -> bool:
             try:
                 xml: ET.Element = ET.fromstring(xml_str)
@@ -561,8 +537,34 @@ class Application:
 
             ic(__verify_sub(xml, children), __num_tags(xml))
             return __verify_sub(xml, children) == __num_tags(xml)
+        return __verify
 
-        return instruction, __verify
+    def xml_example(self, examples: str | list[str], root_tag: str, children: dict[str, str | dict[str, Any]]) -> str:
+        output: str = "You have to use XML format to write your response. Examples:\n"
+        for ex in examples if type(examples) == list else [examples]:
+            output += f"{ex}\n"
+
+        output += "Valid tags:\n"
+        
+        def __expand(__children: dict[str, Any], __output: str = "", __depth: int = 0) -> str:
+            for k, v in __children.items():
+                __output += '\t' * __depth + f"{k}:"
+
+                if type(v) == str:
+                    __output += f" {v}\n"
+                elif type(v) == dict:
+                    __output += '\n'
+                    __output = __expand(v, __output, __depth + 1)
+                else:
+                    raise Exception()
+            return __output
+
+        return __expand(children, output)
+
+    def xml_instruction_and_verify(self, examples: str | list[str], root_tag: str, children: dict[str, Any]) -> (str, Callable[[str], bool]):
+        instruction: str = self.xml_example(examples, root_tag, children)
+        verify: Callable[[str], bool] = self.verify_xml_v2(root_tag, children)
+        return instruction, verify
 
 if __name__ == "__main__":
     parser: argparse.ArgumentParser = argparse.ArgumentParser()
