@@ -20,41 +20,9 @@ class Application:
 
         self.messages: list[dict[str, str]] = []
 
-    def analyze_is_useful(self, title: str, description: str) -> bool:
-        example: str = """
-        Example 1:
-        <website>
-            <useful>True</useful>
-            <reason>It seems to explain important stuff</reason>
-        </website>
-        Example 2:
-        <website>
-            <useful>False</useful>
-            <reason>It doesn't seem to explain necessary stuff</reason>
-        </website>
-        """.strip()
-
-        tags: dict[str, str] = {
-            "<useful>": "True or False, whether the website is useful or not.",
-            "<reason>": "Describe why you write <useful> True or False."
-        }
-
-        xml_instruction: str
-        verify: Callable[[str], bool]
-        xml_instruction, verify = self.xml_instruction_and_verify(example, "website", tags)
-        ic(xml_instruction)
-
-        messages: list[dict[str, str]] = [
-            { "role": "system", "content": f"Title:{title}\nDescription:{description}" },
-            { "role": "system", "content": f"Read the website title and description. Then, decide the website is useful or not and write it.\n{xml_instruction}" }
-        ]
-
-        xml_str: str = self.generate(messages = messages, verify = verify, max_attempt = 2)
-        if xml_str is None:
-            return False
-        
-        xml: ET.Element = ET.fromstring(xml_str)
-        return xml.find("useful").text == "True"
+    def analyze_is_useful_v2(self, title: str, description: str) -> bool:
+        b: bool = self.generate_bool(f"Does this website seem to be useful?\nTitle:{title}\nDescription:{description}")
+        return False if b is None else b
 
     def analyze_load_website(self, url: str) -> str:
         try:
@@ -102,7 +70,7 @@ class Application:
             result_points: list[str] = []
             result_examples: list[str] = []
 
-            if not self.analyze_is_useful(result.title, result.description):
+            if not self.analyze_is_useful_v2(result.title, result.description):
                 continue
 
             website_md: str = self.analyze_load_website(result.url)
@@ -131,6 +99,23 @@ class Application:
 
         return analyze_result
 
+    def analyze_v3(self, search_result: list[googlesearch.SearchResult]) -> dict[googlesearch.SearchResult, list[str]]:
+        instruction: str = "List the keypoints and the examples which needs to explain what the user want to know."
+        points: dict[googlesearch.SearchResult, list[str]] = []
+
+        for result in search_result:
+            if not self.analyze_is_useful_v2(result.title, result.description):
+                continue
+
+            website_md: str = self.analyze_load_website(result.url)
+            if website_md is None:
+                continue
+
+            markdown_instruction: str = f"Read the Markdown below:\n{website_md}\n[End Markdown]\n{instruction}"
+            points[result] = self.generate_list(markdown_instruction)
+
+        return points
+
     def execute_v2(self, plan: ET.Element) -> str | None:
         search_result: list[googlesearch.SearchResult] = []
         analyze_result: list[str] = []
@@ -140,14 +125,14 @@ class Application:
             goal: str = t.get("goal")
 
             if name == "search":
-                search_result = self.search(goal)
+                search_result = self.search_v2()
             elif name == "analyze":
                 analyze_result = self.analyze_v2(goal, search_result)
             elif name == "summarize":
                 return self.summarize_v2(goal, analyze_result)
         return None
 
-    def generate(self, messages: list[dict[str, str]] = [], verify: Callable[[str], bool] = lambda x: True, max_attempt: int = -1) -> str | None:
+    def generate(self, messages: list[dict[str, str]] = [], verify: Callable[[str], bool] = lambda x: True, max_attempt: int = -1, save = False, prefix: str = "", suffix: str = "", **kwargs) -> str | None:
         attempt: int = 0
 
         while True:
@@ -155,45 +140,64 @@ class Application:
                 return None
             attempt += 1
 
-            response: openai.ChatCompletion = self.client.chat.completions.create(model = "gpt-3.5-turbo", messages = self.messages + messages)
-            content: str = response.choices[0].message.content
+            response: openai.ChatCompletion = self.client.chat.completions.create(model = "gpt-3.5-turbo", messages = self.messages + messages, **kwargs)
+            content: str = prefix + response.choices[0].message.content + suffix
             ic(content)
 
             if verify(content):
+                if save:
+                    self.messages = messages + [{ "assistant", content }]
                 return content
     
-    def generate_xml(self, root_tag: str, children: dict[str, Any], instruction: str = None, max_attempt: int = -1) -> str | None:
+    def generate_xml(self, examples: str | list[str], root_tag: str, children: dict[str, Any], instruction: str = None, **kwargs) -> ET.Element | None:
         attempt: int = 0
 
         __instruction: str
         __verify: Callable[[str], bool]
-        __instruction, __verify = xml_instruction_and_verify(root_tag, children)
+        __instruction, __verify = self.xml_instruction_and_verify(examples, root_tag, children)
 
         messages: list[dict[str, str]] = []
         if instruction is not None:
             messages.append({ "role": "system", "content": instruction })
         messages.append({ "role": "system", "content": __instruction })
 
-        while True:
-            if attempt == max_attempt:
-                return None
-            attempt += 1
+        content: str = self.generate(messages, __verify, suffix = f"</{root_tag}>", stop = f"</{root_tag}>", **kwargs)
+        ic("generate_xml", content)
+        element: ET.Element = ET.fromstring(content)
 
-            response: openai.ChatCompletion = self.client.chat.coompletions.create(model = "gpt-3.5-turbo", messages = self.messages + messages, stop = f"<{root_tag}>")
-            content: str = response.choices[0].message.content
-            ic(content)
+        return element
 
-            if __verify(content):
-                return content
+    def generate_list(self, instruction: str, **kwargs) -> list[str] | None:
+        example: str = """
+        <list>
+            <item>Item 1</item>
+            <item>Item 2</item>
+            <item>Item 3</item>
+        </list>
+        """.strip()
 
-    def generate_xml_list(self, instruction: str, existing_list: str, max_attempt = -1) -> str | None:
         children: dict[str, str] = {
             "<item>": "item in the list"
         }
 
-        __instruction: str = instruction + f"\nYou need to add items to the following list:\nf{existing_list}"
+        __instruction: str = instruction + "\nYou have to make List in XML."
 
-        return self.generate_xml("list", children, instruction, max_attempt = max_attempt)
+        element: ET.Element = self.generate_xml(example, "list", children, __instruction, **kwargs)
+        
+        return [e.text for e in element.findall("item")]
+
+    def generate_bool(self, instruction: str, **kwargs) -> bool | None:
+        examples: list[str] = [ "<value>True</value>", "<value>False</value>" ]
+        children: dict[str, str] = {}
+        __instruction: str = instruction + "\nYou have to make Bool value in XML"
+        
+        element: ET.Element = self.generate_xml(examples, "value", children, __instruction, **kwargs)
+        text: str = element.text.lower()
+        if text == "true":
+            return True
+        elif text == "false":
+            return False
+        return None
 
     def plan_v2(self) -> ET.Element:
         example: str = """
@@ -263,6 +267,18 @@ class Application:
 
         search_result: list[googlesearch.SearchResult] = []
         for keyword in keyword_list:
+            result: Generator[googlesearch.SearchResult] = googlesearch.search(keyword, num_results = 5, advanced = True, sleep_interval = 1, timeout = 60)
+            _ = [search_result.append(r) for r in result]
+
+        return search_result
+
+    def search_v2(self) -> list[googlesearch.SearchResult]:
+        instruction: str = "Extract search keywords for google search from previous interaction."
+        keywords: list[str] = self.generate_list(instruction)
+        ic(keywords)
+
+        search_result: list[googlesearch.SearchResult] = []
+        for keyword in keywords:
             result: Generator[googlesearch.SearchResult] = googlesearch.search(keyword, num_results = 5, advanced = True, sleep_interval = 1, timeout = 60)
             _ = [search_result.append(r) for r in result]
 
