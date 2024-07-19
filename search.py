@@ -356,15 +356,6 @@ class Application:
             { "role": "assistant", "content": xml_str }
         ]
 
-    def verify_xml(self, root_tag: str, verify: Callable[[ET.Element], bool] = lambda x: True) -> Callable[[str], bool]:
-        def __convert(x: str) -> bool:
-            try:
-                xml: ET.Element = ET.fromstring(x)
-                return verify(xml) if xml.tag == root_tag else False
-            except:
-                return False
-        return __convert
-
     def verify_xml_v2(self, root_tag: str, children: dict[str, Any], verify: Callable[[ET.Element], bool] = lambda x: True) -> Callable[[str], bool]:
         def __verify(xml_str: str) -> bool:
             try:
