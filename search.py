@@ -21,7 +21,7 @@ class Application:
         self.messages: list[dict[str, str]] = []
 
     def analyze_is_useful_v2(self, title: str, description: str) -> bool:
-        b: bool = self.generate_bool(f"Does this website seem to be useful?\nTitle:{title}\nDescription:{description}")
+        b: bool = self.generate_bool(f"Does this website seem to be useful?\nTitle:{title}\nDescription:{description}", max_attempt = 1)
         return False if b is None else b
 
     def analyze_load_website(self, url: str) -> str:
@@ -43,65 +43,9 @@ class Application:
         main_content: str = f"<html><body>{main_tag}</body></html>"
         return markdownify.markdownify(main_content)
 
-    def analyze_v2(self, goal: str, search_result: list[googlesearch.SearchResult]) -> dict[googlesearch.SearchResult, tuple[list[str], list[str]]]:
-        analyze_result: dict[googlesearch.SearchResult, tuple[list[str], list[str]]] = {}
-
-        example: str = """
-        Example:
-        <points>
-            <point>A is important module for C</point>
-            <point>B can be used instead of A</point>
-
-            <example>To replace A to B, run this command: command</example>
-        </points>
-        """.strip()
-
-        tags: dict[str, str] = {
-            "<point>": "Write a key point which is valuable for the user.",
-            "<example>": "Write an example that describe a key point if the content provide it."
-        }
-
-        xml_instruction: str
-        verify: Callable[[str], bool]
-        xml_instruction, verify = self.xml_instruction_and_verify(example, "points", tags)
-        ic(xml_instruction)
-
-        for result in search_result:
-            result_points: list[str] = []
-            result_examples: list[str] = []
-
-            if not self.analyze_is_useful_v2(result.title, result.description):
-                continue
-
-            website_md: str = self.analyze_load_website(result.url)
-            if website_md is None:
-                continue
-
-            messages: list[dict[str, str]] = [
-                { "role": "system", "content": f"{website_md}" },
-                { "role": "system", "content": f"Read the part of the website contents. Then, extract key points which are relevant to the user's question. In this analyze phase, you have to achieve the goal:\n{goal}\n{xml_instruction}" }
-            ]
-
-            xml_str: str = self.generate(messages = messages, verify = verify, max_attempt = 3)
-            if xml_str is None:
-                continue
-
-            xml: ET.Element = ET.fromstring(xml_str)
-            points: ET.Element = xml.findall("point")
-            for p in points if points is not None else []:
-                result_points.append(p.text)
-
-            examples: ET.Element = xml.findall("example")
-            for e in examples if examples is not None else []:
-                result_examples.append(e.text)
-
-            analyze_result[result] = (result_points, result_examples)
-
-        return analyze_result
-
     def analyze_v3(self, search_result: list[googlesearch.SearchResult]) -> dict[googlesearch.SearchResult, list[str]]:
         instruction: str = "List the keypoints and the examples which needs to explain what the user want to know."
-        points: dict[googlesearch.SearchResult, list[str]] = []
+        points: dict[googlesearch.SearchResult, list[str]] = {}
 
         for result in search_result:
             if not self.analyze_is_useful_v2(result.title, result.description):
@@ -112,7 +56,7 @@ class Application:
                 continue
 
             markdown_instruction: str = f"Read the Markdown below:\n{website_md}\n[End Markdown]\n{instruction}"
-            points[result] = self.generate_list(markdown_instruction)
+            points[result] = self.generate_list(markdown_instruction, max_attempt = 3)
 
         return points
 
@@ -127,9 +71,9 @@ class Application:
             if name == "search":
                 search_result = self.search_v2()
             elif name == "analyze":
-                analyze_result = self.analyze_v2(goal, search_result)
+                analyze_result = self.analyze_v3(search_result)
             elif name == "summarize":
-                return self.summarize_v2(goal, analyze_result)
+                return self.summarize_v3(analyze_result)
         return None
 
     def generate(self, messages: list[dict[str, str]] = [], verify: Callable[[str], bool] = lambda x: True, max_attempt: int = -1, save = False, prefix: str = "", suffix: str = "", **kwargs) -> str | None:
@@ -198,6 +142,15 @@ class Application:
         elif text == "false":
             return False
         return None
+
+    def generate_string(self, instruction: str, **kwargs) -> str | None:
+        example: str = "<value>String</value>"
+        children: dict[str, str] = {}
+        __instruction: str = instruction + "\nYou have to make String value in XML"
+
+        element: ET.Element = self.generate_xml(example, "value", children, __instruction, **kwargs)
+        text: str = element.text
+        return text
 
     def plan_v2(self) -> ET.Element:
         example: str = """
@@ -342,6 +295,14 @@ class Application:
             xml.append(result_xml)
 
         return ET.tostring(xml)
+
+    def summarize_v3(self, analyze_result: dict[googlesearch.SearchResult, list[str]]) -> str:
+        instruction: str = ""
+        for k, p in analyze_result.items():
+            for pi in p:
+                instruction += f"{pi}\n"
+        instruction += "Read the input above and summarize it."
+        return self.generate_string(instruction)
 
     def understand_v2(self, prompt: str) -> None:
         example: str = """
