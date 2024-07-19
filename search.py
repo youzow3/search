@@ -229,6 +229,39 @@ class Application:
 
             if verify(content):
                 return content
+    
+    def generate_xml(self, root_tag: str, children: dict[str, Any], instruction: str = None, max_attempt: int = -1) -> str | None:
+        attempt: int = 0
+
+        __instruction: str
+        __verify: Callable[[str], bool]
+        __instruction, __verify = xml_instruction_and_verify(root_tag, children)
+
+        messages: list[dict[str, str]] = []
+        if instruction is not None:
+            messages.append({ "role": "system", "content": instruction })
+        messages.append({ "role": "system", "content": __instruction })
+
+        while True:
+            if attempt == max_attempt:
+                return None
+            attempt += 1
+
+            response: openai.ChatCompletion = self.client.chat.coompletions.create(model = "gpt-3.5-turbo", messages = self.messages + messages, stop = f"<{root_tag}>")
+            content: str = response.choices[0].message.content
+            ic(content)
+
+            if __verify(content):
+                return content
+
+    def generate_xml_list(self, instruction: str, existing_list: str, max_attempt = -1) -> str | None:
+        children: dict[str, str] = {
+            "<item>": "item in the list"
+        }
+
+        __instruction: str = instruction + f"\nYou need to add items to the following list:\nf{existing_list}"
+
+        return self.generate_xml("list", children, instruction, max_attempt = max_attempt)
             
     def plan(self, understanding: str) -> ET.Element:
         example: str = """
@@ -568,7 +601,7 @@ class Application:
 
 if __name__ == "__main__":
     parser: argparse.ArgumentParser = argparse.ArgumentParser()
-    parser.add_argument("-v", "--version", default = 1, type = int)
+    parser.add_argument("-v", "--version", default = 2, type = int)
     args: argparse.Namespace = parser.parse_args()
 
     app: Application = Application()
