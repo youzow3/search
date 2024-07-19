@@ -216,33 +216,11 @@ class Application:
         xml_instruction, verify = self.xml_instruction_and_verify(example, "plan", tags)
         ic(xml_instruction)
 
-        def __verify(x: str) -> bool:
-            if not verify(x):
-                return False
-
-            xml: ET.Element = ET.fromstring(x)
-            order: list[int] = [0, 0, 0] # search, analyze, summarize
-            for e in xml.findall("action"):
-                name: str = e.get("name")
-                if name == "search":
-                    order[0] = 1
-                elif name == "analyze":
-                    if not order[0]:
-                        return False
-                    order[1] = 1
-                elif name == "summarize":
-                    if not order[1]:
-                        return False
-                    order[2] = 1
-
-            return True
-
-
         self.messages += [
             { "role": "system", "content": f"From your understanding, plan how to get information from the internet.\n{xml_instruction}" }
         ]
 
-        xml_str: str = self.generate(verify = __verify)
+        xml_str: str = self.generate(verify = verify)
         self.messages.append({ "role": "assistant", "content": xml_str })
         return ET.fromstring(xml_str)
 
