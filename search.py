@@ -20,7 +20,7 @@ class Application:
 
         self.messages: list[dict[str, str]] = []
 
-    def analyze_is_useful_v2(self, title: str, description: str) -> bool:
+    def analyze_is_useful(self, title: str, description: str) -> bool:
         b: bool = self.generate_bool(f"Does this website seem to be useful?\nTitle:{title}\nDescription:{description}", save = False, max_attempt = 1)
         return False if b is None else b
 
@@ -43,34 +43,16 @@ class Application:
         main_content: str = f"<html><body>{main_tag}</body></html>"
         return markdownify.markdownify(main_content)
 
-    def analyze_v3(self, search_result: list[googlesearch.SearchResult]) -> dict[googlesearch.SearchResult, list[str]]:
-        instruction: str = "List the keypoints and the examples which needs to explain what the user want to know."
-        points: dict[googlesearch.SearchResult, list[str]] = {}
-
-        for result in search_result:
-            if not self.analyze_is_useful_v2(result.title, result.description):
-                continue
-
-            website_md: str = self.analyze_load_website(result.url)
-            if website_md is None:
-                continue
-
-            markdown_instruction: str = f"Read the Markdown below:\n{website_md}\n[End Markdown]\n{instruction}"
-            points[result] = self.generate_list(markdown_instruction, max_attempt = 3)
-
-        return points
-
-    def analyze_v3_1(self, result: googlesearch.SearchResult, messages: list[dict[str, str]] = [])-> list[str]:
+    def analyze(self, result: googlesearch.SearchResult, messages: list[dict[str, str]] = [])-> list[str]:
         markdown: str = self.analyze_load_website(result.url)
         instruction: str = "Pickup useful information to provide accurate information to the user."
         messages.append({ "role": "system", "content": markdown })
         return self.generate_list(instruction, messages = messages, save = False, max_attempt = 3)
 
-    def execute_v3(self, plan: list[str]) -> tuple[str, list[googlesearch.SearchResult]]:
+    def execute(self, plan: list[str]) -> tuple[str, list[googlesearch.SearchResult]]:
         result: dict[googlesearch.SearchResult, list[str]] = None
 
         while True:
-            ic(plan)
             for p in plan:
                 cmd = p.split()
                 if cmd[0] == "plan":
@@ -83,9 +65,9 @@ class Application:
                     if len(cmd) > 1:
                         num_results = result_table[cmd[1]]
 
-                    result = self.search_v3(num_results)
+                    result = self.search(num_results)
                 elif cmd[0] == "summarize":
-                    return self.summarize_v3(result), list(result.keys())
+                    return self.summarize(result), list(result.keys())
 
     def generate(
         self,
@@ -107,10 +89,8 @@ class Application:
 
             response: openai.ChatCompletion = self.client.chat.completions.create(model = "gpt-3.5-turbo", messages = self.messages + messages, **kwargs)
             content: str = prefix + response.choices[0].message.content + suffix
-            ic(content)
 
             if verify(content):
-                ic(messages)
                 if save:
                     self.messages += save_func(messages, content)
                 return content
@@ -141,7 +121,6 @@ class Application:
         __messages.append({ "role": "system", "content": __instruction })
 
         content: str = self.generate(messages + __messages, __verify, suffix = f"</{root_tag}>", stop = f"</{root_tag}>", save_func = __save_func, **kwargs)
-        ic("generate_xml", content)
         if content is None:
             return None
         return ET.fromstring(content)
@@ -199,36 +178,7 @@ class Application:
         text: str = element.text
         return text
 
-    def plan_v2(self) -> ET.Element:
-        example: str = """
-        <plan>
-            <action name="search" goal="get information about it" />
-            <action name="analyze" goal="extract important stuff from search result" />
-            <action name="summarize" goal="provide accurate information for the user" />
-        </plan>
-        """.strip()
-
-        tags: dict[str, dict[str, str]] = {
-            "<action>": {
-                "name": "\"search\", \"analyze\" or \"summarize\".",
-                "goal": "Brief description of the goal of this action." 
-            }
-        }
-
-        xml_instruction: str
-        verify: Callable[[str], bool]
-        xml_instruction, verify = self.xml_instruction_and_verify(example, "plan", tags)
-        ic(xml_instruction)
-
-        self.messages += [
-            { "role": "system", "content": f"From your understanding, plan how to get information from the internet.\n{xml_instruction}" }
-        ]
-
-        xml_str: str = self.generate(verify = verify)
-        self.messages.append({ "role": "assistant", "content": xml_str })
-        return ET.fromstring(xml_str)
-
-    def plan_v3(self, prompt: str) -> list[str]:
+    def plan(self, prompt: str) -> list[str]:
         messages: list[dict[str, str]] = [
             { "role": "user", "content": prompt },
             { "role": "system", "content": "Read the user input. Then answer the questions." }
@@ -267,68 +217,21 @@ class Application:
         question: str = self.generate_string(instruction)
         answer: str = input(f"{question}:")
 
-        return self.plan_v3(answer)
+        return self.plan(answer)
 
-    def run_v2(self) -> int:
+    def run(self) -> int:
         while True:
             prompt: int = input("Search > ")
             if prompt == "exit":
                 break
-            plan: list[str] = self.plan_v3(prompt)
+            plan: list[str] = self.plan(prompt)
             result: str
             websites: list[googlesearch.SearchResult]
-            result, websites = self.execute_v3(plan)
+            result, websites = self.execute(plan)
             print(websites)
             print(result)
-            ic(self.messages)
 
-    def search(self, goal: str) -> list[googlesearch.SearchResult]:
-        example: str = """
-        Example:
-        <keywords>
-            <keyword>foo</keyword>
-            <keyword>bar</keyword>
-        </keywords>
-        """.strip()
-
-        tags: dict[str, str] = {
-            "<keyword>": "A search keyword for google search."
-        }
-        
-        xml_instruction: str
-        verify: Callable[[str], bool]
-        xml_instruction, verify = self.xml_instruction_and_verify(example, "keywords", tags)
-        ic(xml_instruction)
-
-        self.messages += [
-            { "role": "system", "content": f"Extract search keywords for google search from previous interaction. In this search phase, you have to achieve the goal:\n{goal}\n{xml_instruction}" }
-        ]
-
-        xml_str: str = self.generate(verify = verify)
-
-        xml: ET.Element = ET.fromstring(xml_str)
-        keyword_list: list[str] = [t.text for t in xml.findall("keyword")]
-
-        search_result: list[googlesearch.SearchResult] = []
-        for keyword in keyword_list:
-            result: Generator[googlesearch.SearchResult] = googlesearch.search(keyword= 5, advanced = True, sleep_interval = 1, timeout = 60)
-            _ = [search_result.append(r) for r in result]
-
-        return search_result
-
-    def search_v2(self) -> list[googlesearch.SearchResult]:
-        instruction: str = "Extract search keywords for google search from previous interaction."
-        keywords: list[str] = self.generate_list(instruction)
-        ic(keywords)
-
-        search_result: list[googlesearch.SearchResult] = []
-        for keyword in keywords:
-            result: Generator[googlesearch.SearchResult] = googlesearch.search(keyword, num_results = 5, advanced = True, sleep_interval = 1, timeout = 60)
-            _ = [search_result.append(r) for r in result]
-
-        return search_result
-
-    def search_v3(self, num_results: int) -> dict[googlesearch.SearchResult, list[str]]:
+    def search(self, num_results: int) -> dict[googlesearch.SearchResult, list[str]]:
         keypoints: dict[searchresult.SearchResult, list[str]] = {}
         keypoints_str: str = ""
         keywords: list[str] = self.generate_list("Make search keywords to gather information online.")
@@ -342,7 +245,7 @@ class Application:
 
                 messages = [{ "role": "system", "content": keypoints_str }]
 
-                result_keypoints: list[str] = self.analyze_v3_1(result, messages = messages)
+                result_keypoints: list[str] = self.analyze(result, messages = messages)
                 if result_keypoints is None:
                     continue
                 keypoints[result] = result_keypoints
@@ -358,66 +261,7 @@ class Application:
 
         return keypoints
 
-    def summarize_v2(self, goal: str, analyze_result: dict[googlesearch.SearchResult, tuple[list[str], list[str]]]) -> str:
-        example: str = """
-        <summarize>
-            <ref id="1" title="Website title 1" />
-            <ref id="2" title="Website title 2" />
-            <content>Summarized text</content>
-        </summarize>
-        """.strip()
-
-        tags: dict[str, dict[str, str] | str] = {
-            # "ref": "The website title which you use to make summary.",
-            "<ref>": {
-                "id": "The number to identify website which is quoted in content tag.",
-                "title": "The website title"
-            },
-            "<content>": "Summary of search results. You should write quote like this:[1], [2], ... [n]"
-        }
-        
-        xml_instruction: str
-        xml_verify: Callable[[str], bool]
-        xml_instruction, xml_verify = self.xml_instruction_and_verify(example, "summarize", tags)
-        data: str = self.summarize_v2_website_data(analyze_result)
-        self.messages += [
-            { "role": "system", "content": data },
-            { "role": "system", "content": f"Read the points and examples above. Points and examples are in <content> tag in each <website> tag. Then summarize them as final result. In this summarize phase, you have to achieve the goal:\n{goal}\n{xml_instruction}" }
-        ]
-
-        xml: ET.Element = ET.fromstring(self.generate(verify = xml_verify))
-        content: ET.Element = xml.find("content")
-        return content.text
-
-    def summarize_v2_website_data(self, analyze_result: dict[googlesearch.SearchResult, tuple[list[str], list[str]]]) -> str:
-        xml: ET.Element = ET.Element("websites") # Root element
-
-        for result_key, result_data in analyze_result.items():
-            result_xml: ET.Element = ET.Element("website")
-
-            result_xml_title: ET.Element = ET.Element("title")
-            result_xml_title.text = result_key.title
-
-            result_xml_contents: ET.Element = ET.Element("contents")
-
-            for result_data_point in result_data[0]:
-                result_xml_point: ET.Element = ET.Element("point")
-                result_xml_point.text = result_data_point
-                result_xml_contents.append(result_xml_point)
-
-            for result_data_example in result_data[1]:
-                result_xml_example: ET.Element = ET.Element("example")
-                result_xml_example.text = result_data_example
-                result_xml_contents.append(result_xml_example)
-
-            result_xml.append(result_xml_title)
-            result_xml.append(result_xml_contents)
-
-            xml.append(result_xml)
-
-        return ET.tostring(xml)
-
-    def summarize_v3(self, analyze_result: dict[googlesearch.SearchResult, list[str]]) -> str:
+    def summarize(self, analyze_result: dict[googlesearch.SearchResult, list[str]]) -> str:
         messages: list[dict[str, str]] = []
         instruction: str = "Write the explanation from gathered information"
 
@@ -433,37 +277,7 @@ class Application:
 
         return self.generate_string(instruction, messages = messages)
 
-    def understand_v2(self, prompt: str) -> None:
-        example: str = """
-        <understanding>
-            <fact>the user wants to know how to do foo</fact>
-            <inference>the user seems to want to know how the foo works.</inference>
-        </understanding>
-        """.strip()
-
-        tags: dict[str, str] = {
-            "<fact>": "The stuff the user wants to know which you can read from the given sentence.",
-            "<inference>": "The stuff the user seems to want to know. This means the stuff you can infer from the given sentence."
-        }
-
-        xml_instruction: str
-        verify: Callable[[str], bool]
-        xml_instruction, verify = self.xml_instruction_and_verify(example, "understanding", tags)
-        ic(xml_instruction)
-
-        self.messages += [
-            { "role": "user", "content": prompt },
-            { "role": "system", "content": f"Read the user prompt. Then understand the user's intent.\n{xml_instruction}" }
-        ]
-
-        xml_str: str = self.generate(verify = verify)
-
-        self.messages += [
-            { "role": "assistant", "content": xml_str }
-        ]
-
-
-    def verify_xml_v2(self, root_tag: str, children: dict[str, Any], verify: Callable[[ET.Element], bool] = lambda x: True) -> Callable[[str], bool]:
+    def verify_xml(self, root_tag: str, children: dict[str, Any], verify: Callable[[ET.Element], bool] = lambda x: True) -> Callable[[str], bool]:
         def __verify(xml_str: str) -> bool:
             try:
                 xml: ET.Element = ET.fromstring(xml_str)
@@ -478,12 +292,10 @@ class Application:
             def __verify_sub(sub: ET.Element, tags: dict[str, Any]) -> int:
                 n_tags: int = 0
                 for k, v in tags.items():
-                    ic(k, v)
                     if not k.startswith('<') and not k.endswith('>'): # If it is not a tag
                         continue
 
                     k_items: list[ET.Element] = sub.findall(k.strip("<>"))
-                    ic(k_items)
                     if k_items is None:
                         continue
 
@@ -494,7 +306,6 @@ class Application:
                             n_tags += __verify_sub(k_item, v)
                 return n_tags
 
-            ic(__verify_sub(xml, children), __num_tags(xml))
             return __verify_sub(xml, children) == __num_tags(xml) and verify(xml) if verify is not None else True
         return __verify
 
@@ -522,20 +333,8 @@ class Application:
 
     def xml_instruction_and_verify(self, examples: str | list[str], root_tag: str, children: dict[str, Any], verify: Callable[[ET.Element], bool] = lambda x: True) -> (str, Callable[[str], bool]):
         instruction: str = self.xml_example(examples, root_tag, children)
-        verify: Callable[[str], bool] = self.verify_xml_v2(root_tag, children, verify)
+        verify: Callable[[str], bool] = self.verify_xml(root_tag, children, verify)
         return instruction, verify
 
 if __name__ == "__main__":
-    parser: argparse.ArgumentParser = argparse.ArgumentParser()
-    parser.add_argument("-v", "--version", default = 2, type = int)
-    args: argparse.Namespace = parser.parse_args()
-
-    app: Application = Application()
-    exit_code: int
-    if args.version == 2:
-        exit_code = app.run_v2()
-    else:
-        print("Invalid version")
-        exit_code = 1
-    exit(exit_code)
-
+    exit(Application().run())
