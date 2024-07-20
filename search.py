@@ -2,7 +2,6 @@
 import argparse
 import bs4
 import googlesearch
-from icecream import ic
 import markdownify
 import openai
 import re
