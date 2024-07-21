@@ -66,7 +66,7 @@ class Application:
 
                     result = self.search(num_results)
                 elif cmd[0] == "summarize":
-                    return self.summarize(result), list(result.keys())
+                    return self.summarize(result), None if result is None else list(result.keys())
 
     def generate(
         self,
