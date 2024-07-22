@@ -105,7 +105,7 @@ def main(args: argparse.Namespace) -> int:
         __logger.critical("Failed to build llama.cpp")
         return 1
 
-    llama_bin: str = llama_command_path(config)
+    llama_bin: str = get_llama_command_path(args.config)
     if llama_bin is None:
         __logger.warning("Failed to locate binaries directory. Quantizing and generating server script will not be run")
     __logger.info("Finished building llama.cpp")
