@@ -2,6 +2,7 @@
 import argparse
 import bs4
 import googlesearch
+import logging
 import markdownify
 import openai
 import re
@@ -15,9 +16,25 @@ class Application:
             base_url = "http://localhost:8080/v1",
             api_key = "sk-no-key-required"
         )
+
+        self.logger: logging.Logger = logging.getLogger(f"{__name__}.Application")
+
+        formatter: logging.Formatter = logging.Formatter(fmt = "%(levelname)s: %(funcName)s: %(message)s")
+        stream_handler: logging.StreamHandler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        file_handler: logging.FileHandler = logging.FileHandler("search.py.log")
+        file_handler.setFormatter(formatter)
+
+        self.logger.addHandler(stream_handler)
+        self.logger.addHandler(file_handler)
+
+        self.logger.setLevel(logging.DEBUG)
+
         self.session: requests_html.HTMLSession = requests_html.HTMLSession()
 
         self.messages: list[dict[str, str]] = []
+
+        self.logger.info("Application Initialized")
 
     def analyze_is_useful(self, title: str, description: str) -> bool:
         b: bool = self.generate_bool(f"Does this website seem to be useful?\nTitle:{title}\nDescription:{description}", save = False, max_attempt = 1)
@@ -80,18 +97,24 @@ class Application:
         **kwargs
     ) -> str | None:
         attempt: int = 0
+        self.logger.debug("Start generating AI response")
 
         while True:
             if attempt == max_attempt:
+                self.logger.debug("Failed to generate AI response")
                 return None
             attempt += 1
 
             response: openai.ChatCompletion = self.client.chat.completions.create(model = "gpt-3.5-turbo", messages = self.messages + messages, **kwargs)
             content: str = prefix + response.choices[0].message.content + suffix
+            self.logger.debug(f"{content}")
 
             if verify(content):
                 if save:
+                    self.logger.debug("Adding messages and the response to self.messages")
                     self.messages += save_func(messages, content)
+
+                self.logger.debug("Finished generating AI response")
                 return content
     
     def generate_xml(
