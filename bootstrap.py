@@ -1,37 +1,47 @@
 
 import argparse
+import logging
 import os
 import subprocess
+import sys
+
+from typing import TextIO
+
+logging.basicConfig(format="%(levelname)s: %(message)s", level = logging.DEBUG)
+__logger = logging.getLogger(__name__)
 
 def check_command(command: str) -> int:
-    print(f"Checking \"{command}\" is available...")
+
+    __logger.info(f"Checking \"{command}\"")
     try:
-        r: subprocess.CompletedProcess = subprocess.run([command, "--version"])
+        r: subprocess.CompletedProcess = subprocess.run([command, "--version"], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
     except:
-        print(f"Command \"{command}\" cannot run. Please check you have installed it or set PATH properly.")
+        __logger.error(f"The command \"{command}\" not found")
         return 1
-    print("Done")
+    __logger.info(f"The command \"{command} found.")
     return 0
 
 def get_llama_command_path(command: str, config: str) -> str:
     cmd: str
 
     cmd = f"llama.cpp/Build/bin/{command}"
-    if check_command(cmd) == 0:
+    if check_command(cmd, output = False) == 0:
         return cmd
 
     cmd = f"llama.cpp/Build/bin/{config}/{command}"
-    if check_command(cmd) == 0:
+    if check_command(cmd, output = False) == 0:
         return cmd
     return None
 
 def make_server_script(config: str, server_args: str, thread: int, model_path: str) -> int:
+    __logger.info("Start making llama-server script")
+
     if config is None:
         config = "Debug"
 
     command: str = get_llama_command_path("llama-server", config)
     if command is None:
-        print("Failed to find llama-server binary. Please make the server script manually.")
+        __logger.warning("Failed to find llama-server binary. Please make the server script manually.")
         return 1
 
     server_args_split: list[str] = server_args.split()
@@ -43,6 +53,8 @@ def make_server_script(config: str, server_args: str, thread: int, model_path: s
         _ = [print(s, file = f) for s in ["#!/bin/sh", server_command]]
     with open("llama-server.bat", "w") as f:
         print(server_command, file = f)
+
+    __logger.info("Finished Making llama-server script")
     return 0
 
 def download_model(huggingface: str, gguf: str) -> int:
@@ -69,29 +81,32 @@ def quantize_model(config: str, quant_type: str, thread: int):
 def main(args: argparse.Namespace) -> int:
     check: int = sum([check_command(cmd) for cmd in ["git", "git-lfs", "cmake", "wget", "pip"]])
     if check != 0:
-        print("Some necessary softwares were not found. Please check them, and try again.")
+        __logger.critical("Some necessary softwares were not found. Please check them, and try again.")
         return 1
 
     returncode: int
 
-    print("Start building llama.cpp")
+    __logger.info("Start building llama.cpp")
     returncode = os.system("git clone https://github.com/ggerganov/llama.cpp.git")
     if returncode != 0:
         returncode = os.system("git -C llama.cpp pull")
         if returncode != 0:
-            print("Failed to clone llama.cpp")
+            __logger.critical("Failed to clone or pull llama.cpp")
             return 1
 
     if args.revision != "master":
         returncode = os.system(f"git checkout {args.revision}")
         if returncode != 0:
-            print("Warning: Failed to checkout {args.revision}")
+            __logger.warning("Warning: Failed to checkout {args.revision}")
 
-    os.system("pip install -r llama.cpp/requirements.txt")
+    returncode = os.system("pip install -r llama.cpp/requirements.txt")
+    if returncode != 0:
+        __logger.critical("Failed to install required modules.")
+        return 1
 
-    cmake_configure: int = os.system("cmake llama.cpp -B llama.cpp/Build " + args.build_config)
-    if cmake_configure != 0:
-        print("Failed to configure llama.cpp")
+    returncode = os.system("cmake llama.cpp -B llama.cpp/Build " + args.build_config)
+    if returncode != 0:
+        __logger.critical("Failed to configure llama.cpp")
         return 1
 
     build_command: str = "cmake --build llama.cpp/Build"
@@ -101,30 +116,28 @@ def main(args: argparse.Namespace) -> int:
         build_command += f" -j{args.thread}"
     returncode = os.system(build_command)
     if returncode != 0:
-        print("Failed to build llama.cpp")
+        __logger.critical("Failed to build llama.cpp")
         return 1
-    print("Done")
+    __logger.info("Finished building llama.cpp")
 
-    print("Start downloading AI model.")
-    returncode = download_model(args.model_huggingface, args.model_gguf)
-    if returncode != 0:
-        print("Failed to download the LLM files.")
-        return 1
-    print("Done")
+    if not args.model_skip:
+        __logger.info("Start downloading AI model")
+        returncode = download_model(args.model_huggingface, args.model_gguf)
+        if returncode != 0:
+            __logger.error("Failed to download the LLM files.")
+        else:
+            __logger.info("Finished downloading AI model")
 
     if args.quantize is not None:
-        print("Start quantizing")
+        __logger.info("Start quantizing the model")
         returncode = quantize_model(args.config, args.quantize, args.thread)
         if returncode != 0:
-            print("Warning: Failed to quantize the GGUF file.")
-        print("Done")
+            __logger.warning("Warning: Failed to quantize the GGUF file.")
+        else:
+            __logger.info("Finished quantizing the model")
 
-    print("Start making the server script.")
     model_path: str = "model.gguf" if args.quantize is None else f"model-{args.quantize}.gguf"
-    returncode = make_server_script(args.config, args.server_argument, args.thread, model_path)
-    if returncode != 0:
-        print("Warning: Failed to make server script.")
-    print("Done")
+    make_server_script(args.config, args.server_argument, args.thread, model_path)
 
     return 0
 
@@ -136,6 +149,7 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--thread", default = 1, help = "Parallel build and quantization", type = int)
     parser.add_argument("--model-huggingface", default = None, help = "Git URL for the huggingface model.")
     parser.add_argument("--model-gguf", default = "https://huggingface.co/Qwen/Qwen2-7B-Instruct-GGUF/resolve/main/qwen2-7b-instruct-fp16.gguf", help = "Link for the GGUF model.")
+    parser.add_argument("--model-skip", action="store_true", default = False, help = "Skip downloading AI model.")
     parser.add_argument("--quantize", default = None, help = "Quantize type")
     parser.add_argument("--server-argument", default = "-v -fa -t 8 -c 0 -ngl 4096 --log-append", help = "Argument for llama-server. You don't have to specify models using '-m' or '--model'.")
     exit(main(parser.parse_args()))
