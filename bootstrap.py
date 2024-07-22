@@ -21,33 +21,20 @@ def check_command(command: str) -> int:
     __logger.info(f"The command \"{command} found.")
     return 0
 
-def get_llama_command_path(command: str, config: str) -> str:
-    cmd: str
-
-    cmd = f"llama.cpp/Build/bin/{command}"
-    if check_command(cmd, output = False) == 0:
-        return cmd
-
-    cmd = f"llama.cpp/Build/bin/{config}/{command}"
-    if check_command(cmd, output = False) == 0:
-        return cmd
+def get_llama_command_path(config: str) -> str:
+    if check_command("./llama.cpp/Build/bin/llama-cli") == 0:
+        return f"./llama.cpp/Build/bin/"
+    elif check_command("./llama.cpp/Build/bin/{config}/llama-cli") == 0:
+        return f"./llama.cpp/Build/bin/{config}/"
     return None
 
-def make_server_script(config: str, server_args: str, thread: int, model_path: str) -> int:
+def make_server_script(llama_bin: str, server_args: str, thread: int, model_path: str) -> int:
     __logger.info("Start making llama-server script")
-
-    if config is None:
-        config = "Debug"
-
-    command: str = get_llama_command_path("llama-server", config)
-    if command is None:
-        __logger.warning("Failed to find llama-server binary. Please make the server script manually.")
-        return 1
 
     server_args_split: list[str] = server_args.split()
     if not "-t" in server_args_split or not "--thread" in server_args_split:
         server_args += f" -t {thread}"
-    server_command: str = f"{command} {server_args} -m {model_path}"
+    server_command: str = f"{llama_bin}llama-server {server_args} -m {model_path}"
 
     with open("llama-server.sh", "w") as f:
         _ = [print(s, file = f) for s in ["#!/bin/sh", server_command]]
@@ -73,9 +60,8 @@ def download_model(huggingface: str, gguf: str) -> int:
 
     return returncode
 
-def quantize_model(config: str, quant_type: str, thread: int):
-    quantize: str = get_llama_command_path("llama-quantize", config)
-    returncode: int = os.system(f"{quantize} model.gguf model-{quant_type}.gguf {quant_type} {thread}")
+def quantize_model(llama_bin: str, quant_type: str, thread: int):
+    returncode: int = os.system(f"{llama_bin}llama-quantize model.gguf model-{quant_type}.gguf {quant_type} {thread}")
     return returncode
 
 def main(args: argparse.Namespace) -> int:
@@ -118,6 +104,10 @@ def main(args: argparse.Namespace) -> int:
     if returncode != 0:
         __logger.critical("Failed to build llama.cpp")
         return 1
+
+    llama_bin: str = llama_command_path(config)
+    if llama_bin is None:
+        __logger.warning("Failed to locate binaries directory. Quantizing and generating server script will not be run")
     __logger.info("Finished building llama.cpp")
 
     if not args.model_skip:
@@ -128,16 +118,17 @@ def main(args: argparse.Namespace) -> int:
         else:
             __logger.info("Finished downloading AI model")
 
-    if args.quantize is not None:
+    if args.quantize is not None and llama_bin is not None:
         __logger.info("Start quantizing the model")
-        returncode = quantize_model(args.config, args.quantize, args.thread)
+        returncode = quantize_model(llama_bin, args.quantize, args.thread)
         if returncode != 0:
             __logger.warning("Warning: Failed to quantize the GGUF file.")
         else:
             __logger.info("Finished quantizing the model")
 
     model_path: str = "model.gguf" if args.quantize is None else f"model-{args.quantize}.gguf"
-    make_server_script(args.config, args.server_argument, args.thread, model_path)
+    if llama_bin is not None:
+        make_server_script(llama_bin, args.server_argument, args.thread, model_path)
 
     return 0
 
