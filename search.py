@@ -57,6 +57,9 @@ class Application:
 
     def analyze(self, result: googlesearch.SearchResult, messages: list[dict[str, str]] = [])-> list[str]:
         markdown: str = self.analyze_load_website(result.url)
+        if markdown is None:
+            return None
+
         instruction: str = "Pickup useful information to provide accurate information to the user."
         messages.append({ "role": "system", "content": markdown })
         return self.generate_list(instruction, messages = messages, save = False, max_attempt = 3)
@@ -294,7 +297,7 @@ class Application:
 
     def search(self, num_results: int) -> dict[googlesearch.SearchResult, list[str]]:
         keypoints: dict[searchresult.SearchResult, list[str]] = {}
-        keypoints_str: str = ""
+        keypoints_str: str = None
         keywords: list[str] = self.generate_list("Make search keywords to gather information online.")
         info: list[str] = self.generate_list("List stuff that you should collect from the internet.")
 
@@ -304,14 +307,17 @@ class Application:
                 if not self.generate_bool(instruction, save = False):
                     continue
 
-                messages = [{ "role": "system", "content": keypoints_str }]
+                messages: list[dict[str, str]] = [{ "role": "system", "content": keypoints_str }] if keypoints is not None else []
 
                 result_keypoints: list[str] = self.analyze(result, messages = messages)
                 if result_keypoints is None:
                     continue
                 keypoints[result] = result_keypoints
                 
-                keypoints_str += '\n'.join(result_keypoints).lstrip()
+                if keypoints_str is None:
+                    keypoints_str = f"\n* ".join(result_keypoints).lstrip()
+                else:
+                    keypoints_str += '\n'.join(result_keypoints).lstrip()
                 messages[0]["content"] = keypoints_str
 
                 if self.generate_bool("Is the information enough to explain the user's question?", save = False):
