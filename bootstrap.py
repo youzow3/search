@@ -136,7 +136,7 @@ if __name__ == "__main__":
     parser: argparse.ArgumentParser = argparse.ArgumentParser()
     parser.add_argument("--build-config", default = "", help = "Cmake configuration arguments")
     parser.add_argument("--config", default = None, help = "Build configuration for llama.cpp. Maybe \"Debug\" or \"Release\".")
-    parser.add_argument("--revision", default = "master", help = "Revision for llama.cpp")
+    parser.add_argument("--revision", default = "b3400", help = "Revision for llama.cpp")
     parser.add_argument("-t", "--thread", default = 1, help = "Parallel build and quantization", type = int)
     parser.add_argument("--model-huggingface", default = None, help = "Git URL for the huggingface model.")
     parser.add_argument("--model-gguf", default = "https://huggingface.co/Qwen/Qwen2-7B-Instruct-GGUF/resolve/main/qwen2-7b-instruct-fp16.gguf", help = "Link for the GGUF model.")
