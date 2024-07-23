@@ -37,12 +37,17 @@ class Application:
         return False if b is None else b
 
     def analyze_load_website(self, url: str) -> str:
+        self.logger.debug("Start loading website")
+        self.logger.debug(f"url = {url}")
         try:
             response: requests_html.HTMLResponse = self.session.get(url, timeout = 60)
-        except:
+        except Exception as e:
+            self.logger.debug(str(e))
+            self.logger.debug(f"Failed to get data from {url}")
             return None
 
         if response.status_code != 200:
+            self.logger.debug(f"Failed to get data from {url}. Status code: {response.status_code}")
             return None
 
         soup: bs4.BeautifulSoup = bs4.BeautifulSoup(response.text, "html.parser")
@@ -50,10 +55,13 @@ class Application:
         _ = [t.unwrap() for t in soup.find_all("img")]
         main_tag: bs4.element.Tag = soup.find("main")
         if main_tag == None:
+            self.logger.debug(f"Failed to find <main> tag.")
             return None
 
         main_content: str = f"<html><body>{main_tag}</body></html>"
-        return markdownify.markdownify(main_content)
+        markdown_content: str = markdownify.markdownify(main_content)
+        self.logger.debug("Finished loading website")
+        return markdown_content
 
     def analyze(self, result: googlesearch.SearchResult, messages: list[dict[str, str]] = [])-> list[str]:
         markdown: str = self.analyze_load_website(result.url)
@@ -72,6 +80,7 @@ class Application:
                 cmd = p.split()
                 if cmd[0] == "plan":
                     plan = self.plan_dynamic(result)
+                    self.info("Plan -> {plan}")
                     break
                 if cmd[0] == "search":
                     result_table: dict[str, int] = {"fast": 3, "medium": 5, "slow": 7}
@@ -98,6 +107,7 @@ class Application:
         attempt: int = 0
         self.logger.debug("Start generating AI response")
         self.logger.debug(f"messages = {messages}")
+        self.logger.debug(f"max_attempt = {max_attempt}")
         self.logger.debug(f"save = {save}")
         self.logger.debug(f"prefix = {prefix}")
         self.logger.debug(f"suffix = {suffix}")
@@ -107,6 +117,7 @@ class Application:
                 self.logger.debug(f"Reached max_attempt ( = {max_attempt})")
                 return None
             attempt += 1
+            self.logger.debug(f"Attempt {attempt}")
 
             response: openai.ChatCompletion = self.client.chat.completions.create(model = "gpt-3.5-turbo", messages = self.messages + messages, **kwargs)
             content: str = prefix + response.choices[0].message.content + suffix
@@ -114,12 +125,10 @@ class Application:
 
             if verify(content):
                 if save:
-                    self.logger.debug("Adding messages and the response to self.messages")
                     self.messages += save_func(messages, content)
 
                 self.logger.debug("Finished generating AI response")
                 return content
-            self.logger.debug("Failed to generate AI response")
     
     def generate_xml(
             self,
@@ -132,10 +141,6 @@ class Application:
             save_func: Callable[[ET.Element], str] = lambda y: y,
             **kwargs
         ) -> ET.Element | None:
-        self.logger.debug("Start generating XML")
-        self.logger.debug(f"root_tag = {root_tag}")
-        self.logger.debug(f"children = {children}")
-
         def __save_func(x: list[dict[str, str]], y: str) -> list[dict[str, str]]:
             return messages + ([] if instruction is None else [{ "role": "system", "content": instruction}]) + [{ "role": "assistant", "content": save_func(ET.fromstring(y))}]
 
@@ -152,15 +157,11 @@ class Application:
 
         content: str = self.generate(messages + __messages, __verify, suffix = f"</{root_tag}>", stop = f"</{root_tag}>", save_func = __save_func, **kwargs)
         if content is None:
-            self.logger.debug("Failed to generate XML")
             return None
 
-        self.logger.debug("Finished generating XML")
         return ET.fromstring(content)
 
     def generate_list(self, instruction: str, **kwargs) -> list[str] | None:
-        self.logger.debug(f"Start generating List")
-
         def __save_func(y: ET.Element):
             return '\n'.join([f"* {yi.text}" for yi in y.findall("item")]).lstrip()
 
@@ -178,17 +179,12 @@ class Application:
 
         element: ET.Element = self.generate_xml(example, "list", children, instruction, save_func = __save_func, **kwargs)
         if element is None:
-            self.logger.debug("Failed to generate List")
             return None
         
         l: list = [e.text for e in element.findall("item")]
-        self.logger.debug(f"Generated List -> {l}")
-        self.logger.debug("Finished generating List")
         return l
 
     def generate_bool(self, instruction: str, max_attempt = -1, **kwargs) -> bool | None:
-        self.logger.debug(f"Start generating bool")
-        
         def __verify(xml: ET.Element) -> bool:
             return xml.text.lower() in ["true", "false"]
 
@@ -200,32 +196,23 @@ class Application:
         
         element: ET.Element = self.generate_xml(examples, "bool", children, instruction, verify = __verify, save_func = __save_func, max_attempt = 1, **kwargs)
         if element is None:
-            self.logger.debug("Failed to generate Bool")
             return None
 
         text: str = element.text.lower()
         if text == "true":
-            self.logger.debug("Generated Bool -> True")
-            self.logger.debug("Finished generating Bool")
             return True
         elif text == "false":
-            self.logger.debug("Generated Bool -> False")
-            self.logger.debug("Finished generating Bool")
             return False
 
     def generate_string(self, instruction: str, **kwargs) -> str | None:
-        self.logger.debug("Start generating String")
         examples: str = ["<string>String Value</string>", "<string>Instruction-based String Value</string>"]
         children: dict[str, str] = {}
 
         element: ET.Element = self.generate_xml(examples, "string", children, instruction, save_func = lambda y: y.text, **kwargs)
         if element is None:
-            self.logger.debug("Failed to generate String")
             return None
 
         text: str = element.text
-        self.logger.debug(f"Generated String -> {text}")
-        self.logger.debug("Finished generating String")
         return text
 
     def plan(self, prompt: str) -> list[str]:
@@ -254,13 +241,10 @@ class Application:
         if past_result is None:
             temp_summary = "You have to clarify things the user wants to know first."
         else:
-            past_result_str: str = ""
-            for v in past_result.values():
-                for vi in v:
-                    past_result_str += f"{vi}\n"
-            temp_summary: str = self.generate_string(f"{past_result_str}Read the keypoints above and write summary.", save = False)
+            past_result_str: str = "\n* ".join(list(past_result.values())).lstrip()
+            temp_summary: str = self.generate_string(f"{past_result_str}\nRead the keypoints above and write summary.", save = False)
 
-        messages = [{ "role": "system", "content": temp_summary }]
+        messages: list[dict[str, str]] = [{ "role": "system", "content": temp_summary }]
 
         instruction: str = "Make a question for the user to provide more accurate or specific answer."
 
@@ -300,6 +284,8 @@ class Application:
         keypoints_str: str = None
         info: list[str] = self.generate_list("List stuff that you should collect from the internet.")
         keywords: list[str] = self.generate_list("Make search keywords to gather information online.")
+
+        self.logger.info(f"Search keywords list -> {keywords}")
 
         for keyword in keywords:
             for result in googlesearch.search(keyword, num_results = num_results, advanced = True, timeout = 60):
