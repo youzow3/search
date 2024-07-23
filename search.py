@@ -314,17 +314,17 @@ class Application:
 
     def summarize(self, analyze_result: dict[googlesearch.SearchResult, list[str]]) -> str:
         messages: list[dict[str, str]] = []
-        instruction: str = "Write the explanation from gathered information"
+        instruction: str
 
         if analyze_result is None:
-            instruction = "Write the explanation without uncertain things."
+            instruction = "Write the explanation without uncertain things in markdown format."
         else:
             analyze_result_str: str = ""
             for k, p in analyze_result.items():
                 for pi in p:
                     analyze_result_str += f"{pi}\n"
             messages.append({ "role": "system", "content": analyze_result_str })
-            instruction = "Write the explanation from gathered information."
+            instruction = "Write the explanation from gathered information in markdown format."
 
         return self.generate_string(instruction, messages = messages)
 
