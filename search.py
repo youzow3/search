@@ -28,13 +28,9 @@ class Application:
         self.logger.addHandler(stream_handler)
         self.logger.addHandler(file_handler)
 
-        self.logger.setLevel(logging.DEBUG)
-
         self.session: requests_html.HTMLSession = requests_html.HTMLSession()
 
         self.messages: list[dict[str, str]] = []
-
-        self.logger.info("Application Initialized")
 
     def analyze_is_useful(self, title: str, description: str) -> bool:
         b: bool = self.generate_bool(f"Does this website seem to be useful?\nTitle:{title}\nDescription:{description}", save = False, max_attempt = 1)
@@ -270,7 +266,21 @@ class Application:
 
         return self.plan(answer)
 
-    def run(self) -> int:
+    def run(self, args: argparse.Namespace) -> int:
+        log_levels = {
+            "debug": logging.DEBUG,
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+            "critical": logging.CRITICAL
+        }
+
+        if args.log_level.lower() in log_levels.keys():
+            self.logger.setLevel(log_levels[args.log_level.lower()])
+        else:
+            self.logger.warning("Log level is invalid. Use \"info\" for this time.")
+            self.logger.setLevel(logging.INFO)
+            
         while True:
             prompt: int = input("Search > ")
             if prompt == "exit":
@@ -388,4 +398,6 @@ class Application:
         return instruction, verify
 
 if __name__ == "__main__":
-    exit(Application().run())
+    parser: argparse.ArgumentParser = argparse.ArgumentParser()
+    parser.add_argument("--log-level", default = "info", help = "Log level: [debug, info, warning error, critical]")
+    exit(Application().run(parser.parse_args()))
