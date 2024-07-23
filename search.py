@@ -298,8 +298,8 @@ class Application:
     def search(self, num_results: int) -> dict[googlesearch.SearchResult, list[str]]:
         keypoints: dict[searchresult.SearchResult, list[str]] = {}
         keypoints_str: str = None
-        keywords: list[str] = self.generate_list("Make search keywords to gather information online.")
         info: list[str] = self.generate_list("List stuff that you should collect from the internet.")
+        keywords: list[str] = self.generate_list("Make search keywords to gather information online.")
 
         for keyword in keywords:
             for result in googlesearch.search(keyword, num_results = num_results, advanced = True, timeout = 60):
