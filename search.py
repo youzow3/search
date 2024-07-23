@@ -307,18 +307,17 @@ class Application:
                 if not self.generate_bool(instruction, save = False):
                     continue
 
-                messages: list[dict[str, str]] = [{ "role": "system", "content": keypoints_str }] if keypoints is not None else []
+                messages: list[dict[str, str]] = [] if keypoints_str is None else [{ "role": "system", "content": keypoints_str }]
 
                 result_keypoints: list[str] = self.analyze(result, messages = messages)
                 if result_keypoints is None:
                     continue
                 keypoints[result] = result_keypoints
-                
+
                 if keypoints_str is None:
-                    keypoints_str = f"\n* ".join(result_keypoints).lstrip()
+                    keypoints_str = "\n* ".join(result_keypoints).lstrip()
                 else:
-                    keypoints_str += '\n'.join(result_keypoints).lstrip()
-                messages[0]["content"] = keypoints_str
+                    keypoints_str += "\n* ".join(result_keypoints).lstrip()
 
                 if self.generate_bool("Is the information enough to explain the user's question?", save = False):
                     return keypoints
