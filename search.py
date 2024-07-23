@@ -215,10 +215,10 @@ class Application:
 
     def generate_string(self, instruction: str, **kwargs) -> str | None:
         self.logger.debug("Start generating String")
-        example: str = "<string>String Value</string>"
+        examples: str = ["<string>String Value</string>", "<string>Instruction-based String Value</string>"]
         children: dict[str, str] = {}
 
-        element: ET.Element = self.generate_xml(example, "string", children, instruction, save_func = lambda y: y.text, **kwargs)
+        element: ET.Element = self.generate_xml(examples, "string", children, instruction, save_func = lambda y: y.text, **kwargs)
         if element is None:
             self.logger.debug("Failed to generate String")
             return None
