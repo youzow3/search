@@ -30,7 +30,9 @@ class Application:
 
         self.session: requests_html.HTMLSession = requests_html.HTMLSession()
 
-        self.messages: list[dict[str, str]] = []
+        self.messages: list[dict[str, str]] = [
+            {"role": "system", "content": "This is automated web research system. You have to follow the instructions system provide strictly."}
+        ]
 
     def analyze_is_useful(self, title: str, description: str) -> bool:
         b: bool = self.generate_bool(f"Does this website seem to be useful?\nTitle:{title}\nDescription:{description}", save = False, max_attempt = 1)
@@ -80,7 +82,7 @@ class Application:
                 cmd = p.split()
                 if cmd[0] == "plan":
                     plan = self.plan_dynamic(result)
-                    self.info("Plan -> {plan}")
+                    self.logger.info("Plan -> {plan}")
                     break
                 if cmd[0] == "search":
                     result_table: dict[str, int] = {"fast": 3, "medium": 5, "slow": 7}
@@ -89,8 +91,14 @@ class Application:
                     if len(cmd) > 1:
                         num_results = result_table[cmd[1]]
 
-                    result = self.search(num_results)
+                    _result: dict[googlesearch.SearchResult, list[str]] = self.search(num_results)
+                    if result is None:
+                        result = _result
+                    else:
+                        result |= _result
+
                 elif cmd[0] == "summarize":
+                    self.logger.debug(result)
                     return self.summarize(result), None if result is None else list(result.keys())
 
     def generate(
@@ -115,6 +123,7 @@ class Application:
         while True:
             if attempt == max_attempt:
                 self.logger.debug(f"Reached max_attempt ( = {max_attempt})")
+                self.logger.debug("Failed to generate AI response")
                 return None
             attempt += 1
             self.logger.debug(f"Attempt {attempt}")
@@ -142,7 +151,7 @@ class Application:
             **kwargs
         ) -> ET.Element | None:
         def __save_func(x: list[dict[str, str]], y: str) -> list[dict[str, str]]:
-            return messages + ([] if instruction is None else [{ "role": "system", "content": instruction}]) + [{ "role": "assistant", "content": save_func(ET.fromstring(y))}]
+            return x[:-1] + [{ "role": "assistant", "content": save_func(ET.fromstring(y))}]
 
         attempt: int = 0
 
@@ -165,13 +174,13 @@ class Application:
         def __save_func(y: ET.Element):
             return '\n'.join([f"* {yi.text}" for yi in y.findall("item")]).lstrip()
 
-        example: str = """
-        <list>
-            <item>Item 1</item>
-            <item>Item 2</item>
-            <item>Item 3</item>
-        </list>
-        """.strip()
+        example: str = '\n'.join([
+            "<list>",
+            "\t<item>Item 1</item>",
+            "\t<item>Item 2</item>",
+            "\t<item>Item 3</item>",
+            "</list>"
+        ])
 
         children: dict[str, str] = {
             "<item>": "item in the list"
@@ -182,7 +191,7 @@ class Application:
             return None
         
         l: list = [e.text for e in element.findall("item")]
-        return l
+        return None if l == [] else l
 
     def generate_bool(self, instruction: str, max_attempt = -1, **kwargs) -> bool | None:
         def __verify(xml: ET.Element) -> bool:
@@ -205,23 +214,21 @@ class Application:
             return False
 
     def generate_string(self, instruction: str, **kwargs) -> str | None:
-        examples: str = ["<string>String Value</string>", "<string>Instruction-based String Value</string>"]
+        examples: str = ["<string>\n\tString Value\n</string>", "<string>\n\tInstruction-based String Value\n</string>"]
         children: dict[str, str] = {}
 
         element: ET.Element = self.generate_xml(examples, "string", children, instruction, save_func = lambda y: y.text, **kwargs)
         if element is None:
             return None
 
-        text: str = element.text
+        text: str = '\n'.join(list(map(lambda x: x.removeprefix("\t"), element.text.split('\n'))))
         return text
 
     def plan(self, prompt: str) -> list[str]:
-        messages: list[dict[str, str]] = [
-            { "role": "user", "content": prompt },
-            { "role": "system", "content": "Read the user input. Then answer the questions." }
-        ]
+        self.messages.append({ "role": "user", "content": prompt })
+        
 
-        if self.generate_bool("Do you have unclear term or words in the user prompt?", messages = messages):
+        if self.generate_bool("Do you have unclear term or words in the user prompt?"):
             return ["search fast", "plan"]
 
         if self.generate_bool("Do you need user interaction first to provide more accurate information?"):
@@ -241,7 +248,9 @@ class Application:
         if past_result is None:
             temp_summary = "You have to clarify things the user wants to know first."
         else:
-            past_result_str: str = "\n* ".join(list(past_result.values())).lstrip()
+            past_result_str: str = ""
+            for v in past_result.values():
+                past_result_str += "\n* ".join(v).lstrip()
             temp_summary: str = self.generate_string(f"{past_result_str}\nRead the keypoints above and write summary.", save = False)
 
         messages: list[dict[str, str]] = [{ "role": "system", "content": temp_summary }]
@@ -276,6 +285,7 @@ class Application:
             result: str
             websites: list[googlesearch.SearchResult]
             result, websites = self.execute(plan)
+            self.logger.debug(self.messages)
             print(websites)
             print(result)
 
@@ -311,7 +321,7 @@ class Application:
                 if self.generate_bool(f"Is the information about keyword:{keyword} enough?", save = False):
                     break
 
-        return keypoints
+        return None if keypoints == {} else keypoints
 
     def summarize(self, analyze_result: dict[googlesearch.SearchResult, list[str]]) -> str:
         messages: list[dict[str, str]] = []
@@ -366,8 +376,6 @@ class Application:
         for i, ex in enumerate(examples if type(examples) == list else [examples]):
             output += f"Example {i}\n{ex}\n\n"
 
-        output += "Valid tags:\n"
-        
         def __expand(__children: dict[str, Any], __output: str = "", __depth: int = 0) -> str:
             for k, v in __children.items():
                 __output += '\t' * __depth + f"{k}:"
@@ -381,7 +389,12 @@ class Application:
                     raise Exception()
             return __output
 
-        return __expand(children, output)
+        if children is None:
+            output += "No tags other than the root tag are admitted."
+        else:
+            output += "Valid tags:\n" + __expand(children) + "\nNOTE: No tags other than above are admitted."
+
+        return output
 
     def xml_instruction_and_verify(self, examples: str | list[str], root_tag: str, children: dict[str, Any], verify: Callable[[ET.Element], bool] = lambda x: True) -> (str, Callable[[str], bool]):
         instruction: str = self.xml_example(examples, root_tag, children)
