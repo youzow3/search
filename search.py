@@ -84,7 +84,7 @@ class Application:
                 cmd = p.split()
                 if cmd[0] == "plan":
                     plan = self.plan_dynamic(result)
-                    self.logger.info("Plan -> {plan}")
+                    self.logger.info(f"Plan -> {plan}")
                     break
                 if cmd[0] == "search":
                     result_table: dict[str, int] = {"fast": 3, "medium": 5, "slow": 7}
