@@ -33,6 +33,8 @@ class Application:
         self.messages: list[dict[str, str]] = [
             {"role": "system", "content": "This is automated web research system. You have to follow the instructions system provide strictly."}
         ]
+        
+        self.qa_response: list[dict[str, str]] = []
 
     def analyze_is_useful(self, title: str, description: str) -> bool:
         b: bool = self.generate_bool(f"Does this website seem to be useful?\nTitle:{title}\nDescription:{description}", save = False, max_attempt = 1)
@@ -278,6 +280,8 @@ class Application:
             self.logger.setLevel(logging.INFO)
             
         while True:
+            self.logger.debug(self.qa_response)
+
             prompt: int = input("Search > ")
             if prompt == "exit":
                 break
@@ -288,12 +292,24 @@ class Application:
             self.logger.debug(self.messages)
             print(websites)
             print(result)
+            
+            self.update_qa_response(prompt, result)
+            self.logger.debug(self.messages)
 
     def search(self, num_results: int) -> dict[googlesearch.SearchResult, list[str]]:
+        def __n_keywords(num_results: int) -> int:
+            if num_results < 5:
+                return 1
+            elif num_results < 7:
+                return 3
+            else:
+                return 5
+
         keypoints: dict[searchresult.SearchResult, list[str]] = {}
         keypoints_str: str = None
         info: list[str] = self.generate_list("List stuff that you should collect from the internet.")
-        keywords: list[str] = self.generate_list("Make search keywords to gather information online.")
+        n_keywords = __n_keywords(num_results)
+        keywords: list[str] = self.generate_list("Make search keywords to gather information online. The max number of keywords is {n_keywords}")[:n_keywords]
 
         self.logger.info(f"Search keywords list -> {keywords}")
 
@@ -338,6 +354,15 @@ class Application:
             instruction = "Write the explanation from gathered information in markdown format."
 
         return self.generate_string(instruction, messages = messages)
+
+    def update_qa_response(self, prompt: str, result: str):
+        response: list[dict[str, str]] = [
+            { "role": "user", "content": prompt },
+            { "role": "system", "content": result }
+        ]
+
+        self.qa_response += response
+        self.messages = self.messages[:1] + self.qa_response
 
     def verify_xml(self, root_tag: str, children: dict[str, Any], verify: Callable[[ET.Element], bool] = lambda x: True) -> Callable[[str], bool]:
         def __verify(xml_str: str) -> bool:
