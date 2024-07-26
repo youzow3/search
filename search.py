@@ -436,5 +436,5 @@ class Application:
 
 if __name__ == "__main__":
     parser: argparse.ArgumentParser = argparse.ArgumentParser()
-    parser.add_argument("--log-level", default = "info", help = "Log level: [debug, info, warning error, critical]")
+    parser.add_argument("--log-level", default = "warning", help = "Log level: [debug, info, warning error, critical]")
     exit(Application().run(parser.parse_args()))
