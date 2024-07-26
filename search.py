@@ -280,8 +280,6 @@ class Application:
             self.logger.setLevel(logging.INFO)
             
         while True:
-            self.logger.debug(self.qa_response)
-
             prompt: int = input("Search > ")
             if prompt == "exit":
                 break
@@ -294,7 +292,6 @@ class Application:
             print(result)
             
             self.update_qa_response(prompt, result)
-            self.logger.debug(self.messages)
 
     def search(self, num_results: int) -> dict[googlesearch.SearchResult, list[str]]:
         def __n_keywords(num_results: int) -> int:
@@ -358,11 +355,13 @@ class Application:
     def update_qa_response(self, prompt: str, result: str):
         response: list[dict[str, str]] = [
             { "role": "user", "content": prompt },
-            { "role": "system", "content": result }
+            { "role": "assistant", "content": result }
         ]
 
         self.qa_response += response
+        self.logger.debug(self.qa_response)
         self.messages = self.messages[:1] + self.qa_response
+        self.logger.debug(self.messages)
 
     def verify_xml(self, root_tag: str, children: dict[str, Any], verify: Callable[[ET.Element], bool] = lambda x: True) -> Callable[[str], bool]:
         def __verify(xml_str: str) -> bool:
