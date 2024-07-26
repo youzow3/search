@@ -226,6 +226,11 @@ class Application:
         text: str = '\n'.join(list(map(lambda x: x.removeprefix("\t"), element.text.split('\n'))))
         return text
 
+    def generate_string_freely(self, instruction: str, messages: list[dict[str, str]] = [], **kwargs) -> str | None:
+        messages.append({ "role": "system", "content": instruction })
+
+        return self.generate(messages = messages, **kwargs)
+
     def plan(self, prompt: str) -> list[str]:
         self.messages.append({ "role": "user", "content": prompt })
         
@@ -354,7 +359,7 @@ class Application:
             messages.append({ "role": "system", "content": analyze_result_str })
             instruction = "Write the explanation from gathered information in markdown format."
 
-        return self.generate_string(instruction, messages = messages)
+        return self.generate_string_freely(instruction, messages = messages)
 
     def update_qa_response(self, prompt: str, result: str):
         response: list[dict[str, str]] = [
