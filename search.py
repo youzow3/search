@@ -288,7 +288,11 @@ class Application:
             websites: list[googlesearch.SearchResult]
             result, websites = self.execute(plan)
             self.logger.debug(self.messages)
-            print(websites)
+            if websites is None:
+                print("No websites were used to provide this information.")
+            else:
+                print("\n\n".join(list(map(lambda x: f"{x.title}\nURL: {x.url}", websites))).strip())
+            print()
             print(result)
             
             self.update_qa_response(prompt, result)
